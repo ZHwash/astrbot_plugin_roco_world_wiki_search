@@ -10,7 +10,7 @@
 
 本插件使用的所有文字与数据内容均来自 **[BiliGame 洛克王国 WIKI](https://wiki.biligame.com/rocom/)**
 
-该 WIKI 的所有文字与数据内容均采用 **CC BY-NC-SA 4.0**（署名-非商业性使用-相同方式共享）协议进行许可。
+该 WIKI 的所有文字与数据内容均采用 [CC BY-NC-SA 4.0（署名-非商业性使用-相同方式共享）](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)协议进行许可。
 
 **在此郑重提醒：**
 - 请尊重 WIKI 编辑者的辛勤劳动！
@@ -822,7 +822,7 @@ python tools/fix_missing_pet_data.py
 
 ## 📄 许可证
 
-本项目采用 **CC BY-NC-SA 4.0** 许可证
+本项目采用 [CC BY-NC-SA 4.0（署名-非商业性使用-相同方式共享）](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)协议进行许可。
 
 - **署名 (BY)**：必须标明原作者
 - **非商业性使用 (NC)**：不得用于商业目的
