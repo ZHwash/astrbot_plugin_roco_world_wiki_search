@@ -1,0 +1,56 @@
+{
+    "_data_source_notice": {
+        "type": "string",
+        "default": "⚠️ 数据来源: BiliGame 洛克王国 WIKI (CC BY-NC-SA 4.0)",
+        "description": "【重要声明】本插件使用的数据来自 BiliGame 洛克王国 WIKI，采用 CC BY-NC-SA 4.0 协议。任何使用请严格遵守协议，规范转载请务必清晰注明来源链接。Wiki地址: https://wiki.biligame.com/rocom/"
+    },
+    "db_path": {
+        "type": "string",
+        "default": "./wiki-local.db",
+        "description": "数据库文件路径，相对路径将相对于插件目录"
+    },
+    "search_limit": {
+        "type": "int",
+        "default": 5,
+        "description": "搜索结果最大返回数量 (1-20)"
+    },
+    "enable_fuzzy_search": {
+        "type": "bool",
+        "default": true,
+        "description": "是否开启模糊匹配查询"
+    },
+    "response_style": {
+        "type": "string",
+        "default": "简洁",
+        "options": ["简洁", "详细", "卡片式"],
+        "description": "回复风格：简洁/详细/卡片式"
+    },
+    "trigger_keywords": {
+        "type": "list",
+        "default": ["洛克王国", "查询", "百科"],
+        "description": "触发查询的关键词列表"
+    },
+    "query_command": {
+        "type": "string",
+        "default": "查询",
+        "description": "查询指令名称（不含/前缀），修改后需重载插件"
+    },
+    "image_keywords": {
+        "type": "list",
+        "default": ["图片", "图", "头像", "立绘"],
+        "description": "触发只返回图片的关键词列表（如：洛克王国 喵喵 图片）"
+    },
+    "page_size": {
+        "type": "int",
+        "default": 10,
+        "min": 5,
+        "max": 30,
+        "description": "列表查询每页显示数量 (5-30)"
+    },
+    "vision_model_config": {
+        "type": "string",
+        "default": "",
+        "description": "视觉模型配置（从 AstrBot 已配置的模型中选择，用于颜色识别）",
+        "_special": "select_provider"
+    }
+}
