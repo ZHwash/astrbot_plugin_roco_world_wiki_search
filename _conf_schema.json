@@ -52,5 +52,20 @@
         "default": "",
         "description": "视觉模型配置（从 AstrBot 已配置的模型中选择，用于颜色识别）",
         "_special": "select_provider"
+    },
+    "manual_vision_api_key": {
+        "type": "string",
+        "default": "sk-lm-fWHsHRVg:v8hrxBv4zzTDSkT4CdF4",
+        "description": "手动填写的 API Key(留空则使用 AstrBot 配置或默认值)"
+    },
+    "manual_vision_base_url": {
+        "type": "string",
+        "default": "http://192.168.31.91:1234/v1",
+        "description": "手动填写的 API Base URL(例如:http://localhost:11434/v1)"
+    },
+    "manual_vision_model_id": {
+        "type": "string",
+        "default": "mode/qwen/qwen3.5-9b-q6_k.gguf",
+        "description": "手动填写的模型 ID(例如:qwen2.5-vl:7b)"
     }
 }

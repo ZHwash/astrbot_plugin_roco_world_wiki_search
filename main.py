@@ -39,11 +39,144 @@ class RocoWorldWiki(Star):
     
     def _init_color_extractor(self):
         """
-        初始化颜色提取器（从 AstrBot provider 配置中获取）
+        初始化颜色提取器（从 AstrBot provider 配置中获取或手动填写）
         
         Returns:
             ColorExtractor 实例或 None
         """
+        # 检查是否使用手动配置
+        manual_api_key = self.config.get("manual_vision_api_key", "").strip()
+        manual_base_url = self.config.get("manual_vision_base_url", "").strip()
+        manual_model_id = self.config.get("manual_vision_model_id", "").strip()
+        
+        # 如果手动配置完整，直接使用
+        if manual_api_key and manual_base_url and manual_model_id:
+            logger.info("✅ 使用手动配置的视觉模型")
+            logger.info(f"   - base_url: {manual_base_url}")
+            logger.info(f"   - model: {manual_model_id}")
+            
+            # 创建适配器，使用手动配置
+            class ManualProviderAdapter:
+                """手动配置 Provider 适配器，用于颜色提取"""
+                def __init__(self, context, api_key, base_url, model_id):
+                    self.context = context
+                    self.api_key = api_key
+                    self.base_url = base_url
+                    self.model_id = model_id
+                
+                async def extract_main_colors_async(self, image_path: str, top_n: int = 2):
+                    """使用手动配置的 API 进行颜色识别（异步版本）"""
+                    import base64
+                    import aiohttp
+                    
+                    try:
+                        if not os.path.exists(image_path):
+                            logger.error(f"❌ 图片不存在: {image_path}")
+                            return None
+                        
+                        # 读取图片并转为base64
+                        with open(image_path, 'rb') as f:
+                            image_data = base64.b64encode(f.read()).decode('utf-8')
+                        
+                        # 构建提示词
+                        if top_n == 1:
+                            prompt = (
+                                "请分析这张图片的主色调是什么颜色？\n"
+                                "要求：\n"
+                                "1. 只输出一个中文颜色名称（如：红、橙、黄、绿、蓝、紫、粉、白、黑、棕、灰）\n"
+                                "2. 不要有任何其他文字、标点或解释\n"
+                                "3. 如果图片有多种颜色，选择占比最大的那个"
+                            )
+                        else:
+                            prompt = (
+                                f"请分析这张图片的主要颜色，按占比从高到低列出前{top_n}种颜色。\n"
+                                "要求：\n"
+                                "1. 每行一个颜色，格式：颜色名\n"
+                                "2. 颜色必须是单个中文字：红、橙、黄、绿、蓝、紫、粉、白、黑、棕、灰\n"
+                                "3. 按占比从高到低排序\n"
+                                "4. 不要有任何其他文字、标点或解释\n"
+                                "5. 如果图片颜色单一，只输出一个颜色即可\n"
+                                "\n"
+                                "示例输出：\n"
+                                "绿\n"
+                                "白"
+                            )
+                        
+                        # 调用 OpenAI 兼容 API
+                        headers = {
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {self.api_key}"
+                        }
+                        
+                        payload = {
+                            "model": self.model_id,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": prompt},
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/png;base64,{image_data}"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            "max_tokens": 100,
+                            "temperature": 0.1
+                        }
+                        
+                        # 发送请求
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                f"{self.base_url}/chat/completions",
+                                headers=headers,
+                                json=payload,
+                                timeout=aiohttp.ClientTimeout(total=30)
+                            ) as response:
+                                if response.status != 200:
+                                    error_text = await response.text()
+                                    logger.error(f"❌ API 请求失败: {response.status} - {error_text}")
+                                    return None
+                                
+                                result = await response.json()
+                                response_text = result['choices'][0]['message']['content'].strip()
+                        
+                        # 解析响应
+                        lines = response_text.split('\n')
+                        
+                        valid_colors = []
+                        for line in lines:
+                            color = line.strip()
+                            if len(color) == 1 and color in ['红', '橙', '黄', '绿', '蓝', '紫', '粉', '白', '黑', '棕', '灰']:
+                                if color not in valid_colors:
+                                    valid_colors.append(color)
+                        
+                        if not valid_colors:
+                            logger.warning(f"⚠️ 无法解析颜色: {response_text}")
+                            return None
+                        
+                        valid_colors = valid_colors[:top_n]
+                        
+                        return {
+                            'main_color': valid_colors[0] if len(valid_colors) > 0 else None,
+                            'secondary_color': valid_colors[1] if len(valid_colors) > 1 else None,
+                            'colors': valid_colors,
+                            'rgb_values': [],
+                            'color_ratios': []
+                        }
+                    
+                    except Exception as e:
+                        logger.error(f"❌ 颜色提取错误: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                        return None
+            
+            return ManualProviderAdapter(self.context, manual_api_key, manual_base_url, manual_model_id)
+        
+        # 如果没有手动配置，尝试从 AstrBot provider 配置中获取
         vision_model_config = self.config.get("vision_model_config", "")
         
         if not vision_model_config or not vision_model_config.strip():
@@ -136,10 +269,6 @@ class RocoWorldWiki(Star):
                 else:
                     vision_api_key = raw_api_key or ''
                 
-                # 如果 api_key 为空，设置默认值 "1234"
-                if not vision_api_key:
-                    vision_api_key = "1234"
-                
                 vision_base_url = (provider_config_dict.get('base_url') or 
                                   provider_config_dict.get('api_base') or 
                                   provider_config_dict.get('endpoint') or 
@@ -155,11 +284,7 @@ class RocoWorldWiki(Star):
                 vision_api_key = (getattr(selected_provider, 'api_key', None) or 
                                  getattr(selected_provider, 'token', None) or 
                                  getattr(selected_provider, 'key', None) or 
-                                 '1234')  # 默认值
-                
-                # 如果 api_key 为空，设置默认值 "1234"
-                if not vision_api_key:
-                    vision_api_key = "1234"
+                                 '')
                 
                 vision_base_url = (getattr(selected_provider, 'base_url', None) or 
                                   getattr(selected_provider, 'api_base', None) or 
@@ -257,9 +382,10 @@ class RocoWorldWiki(Star):
             # 创建一个适配器，使用 context.llm_generate() 调用视觉模型
             class AstrBotProviderAdapter:
                 """AstrBot Provider 适配器，用于颜色提取"""
-                def __init__(self, context, provider_id):
+                def __init__(self, context, provider_id, model_name):
                     self.context = context
                     self.provider_id = provider_id
+                    self.model_name = model_name  # 保存实际的模型名称
                 
                 async def extract_main_colors_async(self, image_path: str, top_n: int = 2):
                     """使用 AstrBot Provider 进行颜色识别（异步版本）"""
@@ -302,7 +428,8 @@ class RocoWorldWiki(Star):
                         response = await self.context.llm_generate(
                             chat_provider_id=self.provider_id,
                             prompt=prompt,
-                            image_urls=[f"data:image/png;base64,{image_data}"]
+                            image_urls=[f"data:image/png;base64,{image_data}"],
+                            model=self.model_name  # 使用实际的模型名称
                         )
                         
                         if not response or not response.completion_text:
@@ -340,7 +467,7 @@ class RocoWorldWiki(Star):
                         logger.error(traceback.format_exc())
                         return None
             
-            return AstrBotProviderAdapter(self.context, provider_id)
+            return AstrBotProviderAdapter(self.context, provider_id, vision_model)
         except Exception as e:
             logger.error(f"❌ 初始化颜色提取器失败: {e}")
             import traceback
@@ -419,6 +546,19 @@ class RocoWorldWiki(Star):
         logger.info(f"   - 查询指令: /{self.query_command}")
         logger.info(f"   - 分页大小: {self.page_size} 条/页")
         logger.info(f"   - 图片检索词: {', '.join(self.image_keywords)}")
+        
+        # 检查视觉模型配置方式
+        manual_api_key = self.config.get("manual_vision_api_key", "").strip()
+        manual_base_url = self.config.get("manual_vision_base_url", "").strip()
+        manual_model_id = self.config.get("manual_vision_model_id", "").strip()
+        vision_model_config = self.config.get("vision_model_config", "")
+        
+        if manual_api_key and manual_base_url and manual_model_id:
+            logger.info(f"   - 视觉模型: 手动配置 ({manual_model_id})")
+        elif vision_model_config:
+            logger.info(f"   - 视觉模型: AstrBot Provider ({vision_model_config})")
+        else:
+            logger.warning(f"   - 视觉模型: 未配置（颜色识别功能不可用）")
     
     @property
     def color_extractor(self):
@@ -468,6 +608,19 @@ class RocoWorldWiki(Star):
             
             # 重置颜色提取器（下次使用时会重新初始化）
             self._color_extractor = None
+            
+            # 检查视觉模型配置方式
+            manual_api_key = self.config.get("manual_vision_api_key", "").strip()
+            manual_base_url = self.config.get("manual_vision_base_url", "").strip()
+            manual_model_id = self.config.get("manual_vision_model_id", "").strip()
+            vision_model_config = self.config.get("vision_model_config", "")
+            
+            if manual_api_key and manual_base_url and manual_model_id:
+                logger.info(f"   - 视觉模型: 手动配置 ({manual_model_id})")
+            elif vision_model_config:
+                logger.info(f"   - 视觉模型: AstrBot Provider ({vision_model_config})")
+            else:
+                logger.warning(f"   - 视觉模型: 未配置（颜色识别功能不可用）")
             
             logger.info("✅ 配置更新成功")
             logger.info(f"   - 响应风格: {self.response_style}")
@@ -4347,6 +4500,11 @@ class RocoWorldWiki(Star):
                     
                     # 使用大模型视觉识别提取颜色
                     result = await self.color_extractor.extract_main_colors_async(full_path)
+                    # 清洗非法UTF-8字符，解决MALFORMED错误
+                    import re
+                    result = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', result)  # 删掉控制符
+                    result = result.encode('utf-8', 'ignore').decode('utf-8')  # 强制清理畸形编码
+                    result = result.strip()  # 去掉空字符/空格
                     
                     if result and result['main_color']:
                         new_color = result['main_color']
