@@ -7,6 +7,7 @@ import os
 import time
 import json
 import argparse
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -184,73 +185,100 @@ class IncrementalUpdater:
         success = 0
         failed = 0
         image_success = 0
+        save_errors = []  # 记录保存失败的宠物
         
         for i, name in enumerate(pet_list, 1):
-            pet = crawl_pet(name)
-            if pet:
-                # 将 PetDetail 对象转换为字典
-                if hasattr(pet, '__dict__'):
-                    # 如果是对象，转换为字典
-                    pet_dict = {
-                        'id': getattr(pet, 'id', None),
-                        'name': getattr(pet, 'name', ''),
-                        'form': getattr(pet, 'form', None),
-                        'regional_form_name': getattr(pet, 'regional_form_name', None),
-                        'initial_stage_name': getattr(pet, 'initial_stage_name', None),
-                        'has_alt_color': getattr(pet, 'has_alt_color', None),
-                        'stage': getattr(pet, 'stage', None),
-                        'type': getattr(pet, 'type', None),
-                        'description': getattr(pet, 'description', ''),
-                        'element': getattr(pet, 'element', ''),
-                        'element2': getattr(pet, 'element2', None),
-                        'ability': getattr(pet, 'ability', ''),
-                        'ability_desc': getattr(pet, 'ability_desc', ''),
-                        'hp': getattr(pet, 'hp', 0),
-                        'physical_attack': getattr(pet, 'physical_attack', 0),
-                        'magic_attack': getattr(pet, 'magic_attack', 0),
-                        'physical_defense': getattr(pet, 'physical_defense', 0),
-                        'magic_defense': getattr(pet, 'magic_defense', 0),
-                        'speed': getattr(pet, 'speed', 0),
-                        'size': getattr(pet, 'size', ''),
-                        'weight': getattr(pet, 'weight', ''),
-                        'distribution': getattr(pet, 'distribution', ''),
-                        'questTasks': getattr(pet, 'quest_tasks', None),
-                        'questSkillStones': getattr(pet, 'quest_skill_stones', None),
-                        'skills': getattr(pet, 'skills', None),
-                        'skillUnlockLevels': getattr(pet, 'skill_unlock_levels', None),
-                        'bloodlineSkills': getattr(pet, 'bloodline_skills', None),
-                        'learnableSkillStones': getattr(pet, 'learnable_skill_stones', None),
-                        'evolutionCondition': getattr(pet, 'evolution_condition', ''),
-                        'update_version': getattr(pet, 'update_version', ''),
-                        'sprite_image': getattr(pet, 'sprite_image', None),
-                        'sprite_image_local': getattr(pet, 'sprite_image_local', None),
-                    }
+            try:
+                pet = crawl_pet(name)
+                if pet:
+                    # 将 PetDetail 对象转换为字典
+                    if hasattr(pet, '__dict__'):
+                        # 如果是对象，转换为字典（使用数据库期望的字段名）
+                        pet_dict = {
+                            'id': getattr(pet, 'id', None),
+                            'name': getattr(pet, 'name', ''),
+                            'form': getattr(pet, 'form', None),
+                            'regionalFormName': getattr(pet, 'regional_form_name', None),
+                            'initialStageName': getattr(pet, 'initial_stage_name', None),
+                            'hasAltColor': getattr(pet, 'has_alt_color', None),
+                            'stage': getattr(pet, 'stage', None),
+                            'type': getattr(pet, 'type', None),
+                            'description': getattr(pet, 'description', ''),
+                            'element': getattr(pet, 'element', ''),
+                            'element2': getattr(pet, 'element2', None),
+                            'ability': getattr(pet, 'ability', ''),
+                            'abilityDesc': getattr(pet, 'ability_desc', ''),
+                            'hp': getattr(pet, 'hp', 0),
+                            'physicalAttack': getattr(pet, 'physical_attack', 0),
+                            'magicAttack': getattr(pet, 'magic_attack', 0),
+                            'physicalDefense': getattr(pet, 'physical_defense', 0),
+                            'magicDefense': getattr(pet, 'magic_defense', 0),
+                            'speed': getattr(pet, 'speed', 0),
+                            'size': getattr(pet, 'size', ''),
+                            'weight': getattr(pet, 'weight', ''),
+                            'distribution': getattr(pet, 'distribution', ''),
+                            'questTasks': getattr(pet, 'quest_tasks', None),
+                            'questSkillStones': getattr(pet, 'quest_skill_stones', None),
+                            'skills': getattr(pet, 'skills', None),
+                            'skillUnlockLevels': getattr(pet, 'skill_unlock_levels', None),
+                            'bloodlineSkills': getattr(pet, 'bloodline_skills', None),
+                            'learnableSkillStones': getattr(pet, 'learnable_skill_stones', None),
+                            'evolutionCondition': getattr(pet, 'evolution_condition', ''),
+                            'evolutionStages': getattr(pet, 'evolution_stages', []),
+                            'updateVersion': getattr(pet, 'update_version', ''),
+                            'spriteImage': getattr(pet, 'sprite_image', None),
+                            'spriteImageLocal': getattr(pet, 'sprite_image_local', None),
+                        }
+                    else:
+                        pet_dict = pet
+                    
+                    # 下载宠物立绘
+                    if pet_dict.get('spriteImage'):
+                        image_local = download_pet_sprite(pet_dict['name'], pet_dict['spriteImage'])
+                        if image_local:
+                            pet_dict['spriteImageLocal'] = image_local
+                            image_success += 1
+                    
+                    # 保存宠物到数据库，添加异常处理
+                    try:
+                        self.db.save_pet(pet_dict)
+                        self.cache['pets'].append(pet_dict['name'])
+                        success += 1
+                    except Exception as save_error:
+                        failed += 1
+                        error_msg = f"保存失败 [{name}]: {str(save_error)}"
+                        save_errors.append(error_msg)
+                        print(f"  [错误] {error_msg}")
+                    
+                    if i % 50 == 0 or i == len(pet_list):
+                        print(f"  [{i}/{len(pet_list)}] 成功: {success}, 失败: {failed}, 图片: {image_success}")
                 else:
-                    pet_dict = pet
+                    failed += 1
+                    print(f"  [警告] 爬取失败: {name}")
                 
-                # 下载宠物立绘
-                if pet_dict.get('sprite_image'):
-                    image_local = download_pet_sprite(pet_dict['name'], pet_dict['sprite_image'])
-                    if image_local:
-                        pet_dict['sprite_image_local'] = image_local
-                        image_success += 1
-                
-                self.db.save_pet(pet_dict)
-                self.cache['pets'].append(pet_dict['name'])
-                success += 1
-                
-                if i % 50 == 0 or i == len(pet_list):
-                    print(f"  [{i}/{len(pet_list)}] 成功: {success}, 失败: {failed}, 图片: {image_success}")
-            else:
+                if i % 100 == 0:
+                    time.sleep(2)
+                else:
+                    time.sleep(0.05)
+            except Exception as e:
                 failed += 1
-            
-            if i % 100 == 0:
-                time.sleep(2)
-            else:
-                time.sleep(0.05)
+                error_msg = f"处理异常 [{name}]: {str(e)}"
+                save_errors.append(error_msg)
+                print(f"  [错误] {error_msg}")
+                import traceback
+                traceback.print_exc()
         
         self._save_cache()
-        print(f"\n宠物更新完成: 成功 {success}, 失败 {failed}, 图片 {image_success}\n")
+        print(f"\n宠物更新完成: 成功 {success}, 失败 {failed}, 图片 {image_success}")
+        
+        # 输出保存失败的详细信息
+        if save_errors:
+            print(f"\n{'='*60}")
+            print(f"保存失败的宠物列表 (共{len(save_errors)}个):")
+            print(f"{'='*60}")
+            for error_msg in save_errors:
+                print(f"  {error_msg}")
+            print(f"{'='*60}\n")
     
     def update_items(self, force=False, only_images=False):
         """更新道具数据

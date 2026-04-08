@@ -4,7 +4,7 @@
 """
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict
 from src.config import BASE_URL, fetch_with_retry
 from src.skill_detail import SkillDetail
 
@@ -41,6 +41,8 @@ class PetDetail:
     bloodline_skills: List[str] = field(default_factory=list)
     learnable_skill_stones: List[str] = field(default_factory=list)
     evolution_condition: str = ""
+    evolution_chain: Optional[str] = None  # 进化链wikitext原始数据
+    evolution_stages: List[Dict] = field(default_factory=list)  # 结构化进化阶段数据
     update_version: str = ""
     sprite_image: Optional[str] = None  # 宠物立绘URL
     sprite_image_local: Optional[str] = None  # 本地图片路径
@@ -122,6 +124,63 @@ def extract_pet_sprite_image(html: str) -> Optional[str]:
     return None
 
 
+def parse_evolution_chain(wikitext: str) -> List[Dict]:
+    """
+    解析Wiki文本中的进化链模板
+    
+    Args:
+        wikitext: Wiki原始文本
+    
+    Returns:
+        进化阶段列表，每个阶段包含：name(名称), level(等级), condition(条件), image(图片)
+    """
+    import re
+    
+    stages = []
+    
+    # 匹配 {{进化链|...}} 或 {{EvolutionChain|...}}
+    match = re.search(r'\{\{(?:进化链|EvolutionChain)\s*\|([\s\S]*?)\}\}', wikitext)
+    if not match:
+        return stages
+    
+    raw = match.group(1)
+    
+    # 解析 key=value 对
+    data = {}
+    pairs = raw.split('\n|')
+    for pair in pairs:
+        if '=' not in pair:
+            continue
+        eq_index = pair.index('=')
+        key = pair[:eq_index].strip()
+        value = pair[eq_index + 1:].strip()
+        data[key] = value
+    
+    # 提取各个阶段的信息（支持最多5个阶段）
+    stage_keys = [
+        ('一阶段形态', '一阶段等级', '一阶段进化条件'),
+        ('二阶段形态', '二阶段等级', '二阶段进化条件'),
+        ('三阶段形态', '三阶段等级', '三阶段进化条件'),
+        ('四阶段形态', '四阶段等级', '四阶段进化条件'),
+        ('五阶段形态', '五阶段等级', '五阶段进化条件'),
+    ]
+    
+    for i, (name_key, level_key, condition_key) in enumerate(stage_keys, 1):
+        stage_name = data.get(name_key, '')
+        if not stage_name:
+            continue
+        
+        stage_info = {
+            'stage': i,
+            'name': stage_name,
+            'level': data.get(level_key, ''),
+            'condition': data.get(condition_key, ''),
+        }
+        stages.append(stage_info)
+    
+    return stages
+
+
 def parse_wikitext(wikitext: str) -> Optional[PetDetail]:
     """
     解析Wiki文本中的宠物信息
@@ -158,6 +217,9 @@ def parse_wikitext(wikitext: str) -> Optional[PetDetail]:
         """按换行或逗号分割任务"""
         return [x.strip() for x in re.split(r'[,\n]', s) if x.strip()]
     
+    # 解析进化链
+    evolution_stages = parse_evolution_chain(wikitext)
+    
     return PetDetail(
         id=0,  # 默认值，稍后从HTML中提取
         name="",
@@ -191,6 +253,8 @@ def parse_wikitext(wikitext: str) -> Optional[PetDetail]:
         bloodline_skills=split_comma(data.get("血脉技能", "")),
         learnable_skill_stones=split_comma(data.get("可学技能石", "")),
         evolution_condition=data.get("进化条件", ""),
+        evolution_chain=None,  # 不存储原始wikitext，只存储结构化数据
+        evolution_stages=evolution_stages,
         update_version=data.get("更新版本", ""),
         sprite_image=data.get("宠物立绘形态") or None,
     )
