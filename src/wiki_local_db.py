@@ -69,6 +69,7 @@ class WikiLocalDB:
                 bloodline_skills TEXT,  -- JSON array
                 learnable_skill_stones TEXT,  -- JSON array
                 evolution_condition TEXT,
+                evolution_stages TEXT,  -- JSON array of evolution stages
                 update_version TEXT,
                 sprite_image TEXT,  -- 宠物立绘URL
                 sprite_image_local TEXT,  -- 本地图片路径
@@ -294,6 +295,18 @@ class WikiLocalDB:
     def save_pet(self, pet_data: dict):
         """保存宠物数据"""
         cursor = self.conn.cursor()
+        
+        # 检查是否已存在同名宠物
+        cursor.execute('SELECT id FROM pets WHERE name = ?', (pet_data.get('name', ''),))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # 如果存在，更新记录（保持原有ID）
+            pet_id = existing['id']
+        else:
+            # 如果不存在，让数据库自动生成新ID
+            pet_id = None
+        
         cursor.execute('''
             INSERT OR REPLACE INTO pets 
             (id, name, form, regional_form_name, initial_stage_name, has_alt_color,
@@ -301,10 +314,10 @@ class WikiLocalDB:
              hp, physical_attack, magic_attack, physical_defense, magic_defense, speed,
              size, weight, distribution, quest_tasks, quest_skill_stones,
              skills, skill_unlock_levels, bloodline_skills, learnable_skill_stones,
-             evolution_condition, update_version, sprite_image, sprite_image_local, raw_data, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             evolution_condition, evolution_stages, update_version, sprite_image, sprite_image_local, raw_data, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
-            pet_data.get('id', 0),
+            pet_id,  # 使用查询到的ID或None（让数据库自动生成）
             pet_data.get('name', ''),
             pet_data.get('form', ''),
             pet_data.get('regionalFormName', ''),
@@ -333,6 +346,7 @@ class WikiLocalDB:
             json.dumps(pet_data.get('bloodlineSkills', []), ensure_ascii=False),
             json.dumps(pet_data.get('learnableSkillStones', []), ensure_ascii=False),
             pet_data.get('evolutionCondition', ''),
+            json.dumps(pet_data.get('evolutionStages', []), ensure_ascii=False),
             pet_data.get('updateVersion', ''),
             pet_data.get('spriteImage'),
             pet_data.get('spriteImageLocal'),

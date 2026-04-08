@@ -33,7 +33,7 @@ from src.color_extractor_vision import ColorExtractor
 DATA_SOURCE_NOTICE = "\n\n---\n📚 数据来源: [BiliGame 洛克王国 WIKI](https://wiki.biligame.com/rocom/) | CC BY-NC-SA 4.0"
 
 
-@register("astrbot-plugin-roco-world-wiki", "InMain", "洛克王国 Wiki 查询", "2.0.0")
+@register("astrbot-plugin-roco-world-wiki", "InMain", "洛克王国 Wiki 查询", "2.9.0")
 class RocoWorldWiki(Star):
     """洛克王国 Wiki 插件"""
     
@@ -2183,16 +2183,40 @@ class RocoWorldWiki(Star):
                         'element': element
                     }
         
-        # 2.5 单属性宠物查询：“火系宠物”、“火系精灵”、“水系宝可梦”
+        # 2.5 单属性宠物查询：“火系宠物”、“火系精灵”、“水系宝可梦”、“洛克 火系宠物”、“火属性的精灵”
         pet_element_patterns = [
-            r'^(\w+)[系](?:宠物|精灵|怪兽|魔灵|伙伴)$',  # "火系宠物"、"火系精灵"
-            r'^(\w+)[系]$',  # "火系" (单独的属性也可能是在查宠物)
+            r'(?:洛克|帮我查|查询|查找)?\s*(\w+?)[系的](?:宠物|精灵|怪兽|魔灵|伙伴)$',  # "火系宠物"、"火属性的精灵"、"洛克 火系宠物"
+            r'(?:洛克|帮我查|查询|查找)?\s*(\w+?)[系的]$',  # "火系"、"火属性的" (单独的属性也可能是在查宠物)
         ]
         
+        # 4. 属性组合查询（必须在单属性之前，避免“光+地的精灵”被误匹配为单属性）
+        combo_patterns = [
+            r'(\w+?)[+和与](\w+?)[系的]?(?:宠物|精灵|怪兽|魔灵|伙伴)',  # "草+毒宠物"、"光+地的精灵"
+            r'(\w+?)[+和与](\w+?)系',  # "草+毒系"
+            r'(\w+)(\w+)双系',  # "草毒双系"
+            r'(\w+)(\w+)系宠物',  # "草毒系宠物" (连续两个属性)
+        ]
+        
+        for pattern in combo_patterns:
+            match = re.search(pattern, query)
+            if match:
+                elem1, elem2 = match.group(1), match.group(2)
+                # 去掉“系”、“属性”、“的”等后缀
+                elem1 = elem1.replace('系', '').replace('属性', '').replace('的', '')
+                elem2 = elem2.replace('系', '').replace('属性', '').replace('的', '')
+                # 验证是否是有效的属性组合
+                valid_elements = ['火', '水', '草', '电', '冰', '龙', '光', '暗', '普通', '机械', '武', '毒', '翼', '萌', '虫', '幽', '幻', '地', '恶']
+                if elem1 in valid_elements and elem2 in valid_elements:
+                    return {
+                        'type': 'pet_elements',
+                        'elements': [elem1, elem2]
+                    }
+        
+        # 单属性查询（在双属性之后）
         for pattern in pet_element_patterns:
             match = re.search(pattern, query)
             if match:
-                element = match.group(1).replace('系', '')
+                element = match.group(1).replace('系', '').replace('属性', '')
                 valid_elements = ['火', '水', '草', '电', '冰', '龙', '光', '暗', '普通', '机械', '武', '毒', '翼', '萌', '虫', '幽', '幻', '地', '恶']
                 if element in valid_elements:
                     return {
@@ -2253,13 +2277,80 @@ class RocoWorldWiki(Star):
                     'pet_name': pet_name.strip()
                 }
                 
-        # 3.8 宠物进化查询：“迪莫怎么进化”、“小灵菇进化条件”、“幻灵菇进化成什么”
-        pet_evolution_query = re.search(r'(\S+?)(?:怎么进化|如何进化|进化条件|进化成什么|进化形态)', query)
+        # 3.8 宠物进化查询：支持多种表达方式
+        # "迪莫怎么进化"、"小灵菇进化条件"、"幻灵菇进化成什么"
+        # "喵喵进化至下一阶段的条件是什么"、"喵呜进化需要什么条件"
+        # "墨鱿士进化" （简单格式）
+        
+        # 优先匹配最终形态查询（必须在普通进化查询之前）
+        # "某精灵的最终形态"、"最终进化是什么"
+        # 注意：需要正确处理"XX的最终形态"、"XX的最后进化"、"XX的终极形态"等格式
+        pet_final_form = re.search(r'(.+?)(?:的最终形态|的最后进化|的终极形态|的最终进化)', query)
+        if pet_final_form:
+            return {
+                'type': 'pet_final_form_query',
+                'pet_name': pet_final_form.group(1).strip()
+            }
+        
+        # 再尝试匹配详细的进化查询
+        pet_evolution_query = re.search(r'([\S]+?)(?:怎么进化|如何进化|进化条件|进化成什么|进化形态|进化至下一阶段|进化需要什么|下一阶段的条件)', query)
         if pet_evolution_query:
             return {
                 'type': 'pet_evolution_query',
                 'pet_name': pet_evolution_query.group(1).strip()
             }
+        
+        # 再尝试匹配简单的“XX进化”格式（确保不是其他类型）
+        simple_evolution = re.search(r'^([^\s]+?)进化$', query)
+        if simple_evolution:
+            pet_name = simple_evolution.group(1).strip()
+            # 排除已经匹配的其他类型（如“最终形态”、“第二阶段”等）
+            if not re.search(r'(最终|第二|第三|第一|第四|第五|阶段|阶)', query):
+                return {
+                    'type': 'pet_evolution_query',
+                    'pet_name': pet_name
+                }
+        
+        # "某精灵进化后的样子"、"进化后变成什么"
+        pet_after_evolution = re.search(r'(.+?)(?:进化后的样子|进化后变成|进化后会变成|进化后是什么)', query)
+        if pet_after_evolution:
+            return {
+                'type': 'pet_after_evolution_query',
+                'pet_name': pet_after_evolution.group(1).strip()
+            }
+        
+        # "某精灵以前是什么样子"、"进化前是什么"
+        pet_before_evolution = re.search(r'(.+?)(?:以前是什么样子|进化前是什么|进化前的样子|之前是什么)', query)
+        if pet_before_evolution:
+            return {
+                'type': 'pet_before_evolution_query',
+                'pet_name': pet_before_evolution.group(1).strip()
+            }
+        
+        # "某精灵完整进化链"、"进化路线"
+        pet_full_evolution = re.search(r'(.+?)(?:完整进化链|进化链|进化路线|全部进化)', query)
+        if pet_full_evolution:
+            return {
+                'type': 'pet_full_evolution_query',
+                'pet_name': pet_full_evolution.group(1).strip()
+            }
+        
+        # 3.8.5 特定阶段形态查询：“墨鱿士的第二阶段”、“秩序鱿墨的第三阶段”、“迪莫的第2阶”
+        pet_stage_query = re.search(r'(.+?)(?:的第([一二三四五]|[1-5])阶段|的第([一二三四五]|[1-5])阶)', query)
+        if pet_stage_query:
+            pet_name = pet_stage_query.group(1).strip()
+            # 获取阶段数字（中文或阿拉伯数字）
+            stage_num_str = pet_stage_query.group(2) or pet_stage_query.group(3)
+            # 转换中文数字为阿拉伯数字
+            chinese_to_num = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5}
+            stage_num = chinese_to_num.get(stage_num_str, int(stage_num_str) if stage_num_str.isdigit() else None)
+            
+            if stage_num:
+                return {
+                    'type': 'pet_stage_query',
+                    'pet_name': pet_name,
+                    'stage_number': stage_num
+                }
                 
         # 3.9 宠物六维/种族值查询：“迪莫的种族值”、“幻灵菇的六维”、“迪莫各项属性”
         pet_stats_query = re.search(r'(\S+?)(?:的种族值|的六维|各项属性|详细属性|面板数据)', query)
@@ -2268,29 +2359,6 @@ class RocoWorldWiki(Star):
                 'type': 'pet_stats_query',
                 'pet_name': pet_stats_query.group(1).strip()
             }
-            
-        # 4. 属性组合查询：“草毒系宠物”、“草+毒”、“草和毒系宠物”
-        combo_patterns = [
-            r'(\w+)[+和与](\w+)[系]?宠物',  # "草+毒宠物"、"草和毒宠物"
-            r'(\w+)[+和与](\w+)系',  # "草+毒系"
-            r'(\w+)(\w+)双系',  # "草毒双系"
-            r'(\w+)(\w+)系宠物',  # "草毒系宠物" (连续两个属性)
-        ]
-        
-        for pattern in combo_patterns:
-            match = re.search(pattern, query)
-            if match:
-                elem1, elem2 = match.group(1), match.group(2)
-                # 去掉“系”字后缀
-                elem1 = elem1.replace('系', '')
-                elem2 = elem2.replace('系', '')
-                # 验证是否是有效的属性组合
-                valid_elements = ['火', '水', '草', '电', '冰', '龙', '光', '暗', '普通', '机械', '武', '毒', '翼', '萌', '虫', '幽', '幻', '地', '恶']
-                if elem1 in valid_elements and elem2 in valid_elements:
-                    return {
-                        'type': 'pet_elements',
-                        'elements': [elem1, elem2]
-                    }
             
         # 5. 属性筛选：“HP大于100的宠物”、“攻击力大于80”
         stat_patterns = [
@@ -2464,43 +2532,410 @@ class RocoWorldWiki(Star):
         # 3.8 宠物进化查询
         elif query_type == 'pet_evolution_query':
             pet_name = type_match['pet_name']
-            pets = self.db_service.get_pet_info(pet_name, fuzzy=True, limit=1)
             
-            if pets:
-                pet = pets[0]
-                stage = pet.get('stage', '')
-                initial_stage = pet.get('initial_stage_name', '')
-                form = pet.get('form', '')
-                evolution_condition = pet.get('evolution_condition', '')
+            # 尝试获取所有进化分支
+            all_chains = self.db_service.get_pet_all_evolution_chains(pet_name)
+            
+            if not all_chains:
+                return f"❌ 未找到宠物 '{pet_name}'"
+            
+            response = f"🔄 **{pet_name}** 的进化信息:\n\n"
+            
+            # 检查是否有进化信息
+            has_evolution = False
+            for chain in all_chains:
+                if len(chain.get('stages', [])) > 1:
+                    has_evolution = True
+                    break
+            
+            if not has_evolution:
+                return f"ℹ️ {pet_name} 暂无进化信息"
+            
+            # 如果有多个分支，显示树状分支
+            if len(all_chains) > 1:
+                response += f"⚠️ {pet_name} 有 {len(all_chains)} 个进化分支:\n\n"
                 
-                response = f"🔄 **{pet['name']}** 的进化信息:\n\n"
+                # 找到分岔点（共同的前缀）
+                common_stages = []
+                first_chain_stages = all_chains[0]['stages']
                 
-                if stage:
-                    response += f"📊 **当前阶段:** {stage}\n"
-                if initial_stage:
-                    response += f"🌱 **初始形态:** {initial_stage}\n"
-                if form and form != '原始形态':
-                    response += f"🎭 **形态:** {form}\n"
+                for i, stage in enumerate(first_chain_stages):
+                    is_common = True
+                    for chain in all_chains[1:]:
+                        if i >= len(chain['stages']) or chain['stages'][i].get('name') != stage.get('name'):
+                            is_common = False
+                            break
+                    if is_common:
+                        common_stages.append(stage)
+                    else:
+                        break
                 
-                if evolution_condition:
-                    import json
-                    try:
-                        conditions = json.loads(evolution_condition)
-                        if conditions:
-                            response += f"\n🔮 **进化条件:**\n"
-                            if isinstance(conditions, list):
-                                for i, cond in enumerate(conditions, 1):
-                                    response += f"  {i}. {cond}\n"
-                            else:
-                                response += f"  {conditions}\n"
-                    except:
-                        response += f"\n🔮 **进化条件:** {evolution_condition}\n"
+                # 显示共同路径
+                if common_stages:
+                    response += "**共同进化路径:**\n"
+                    for i, stage in enumerate(common_stages):
+                        stage_name = stage.get('name', '')
+                        
+                        response += f"  {i+1}. {stage_name}\n"
+                        
+                        # 显示从这个阶段进化的条件
+                        if i < len(common_stages) - 1:
+                            next_stage = common_stages[i+1]
+                            if next_stage.get('level'):
+                                response += f"     🎯 等级: {next_stage.get('level')}\n"
+                            if next_stage.get('condition'):
+                                response += f"     🔮 条件: {next_stage.get('condition')}\n"
+                    response += "\n"
+                
+                # 显示各个分支
+                for idx, chain in enumerate(all_chains, 1):
+                    # 找到分岔后的阶段
+                    diverged_stages = chain['stages'][len(common_stages):]
+                    
+                    if diverged_stages:
+                        response += f"**分支{idx}:**\n"
+                        for i, stage in enumerate(diverged_stages):
+                            stage_name = stage.get('name', '')
+                            
+                            indent = "  " if i == 0 else "    "
+                            response += f"{indent}{len(common_stages)+i+1}. {stage_name}\n"
+                            
+                            # 显示进化条件
+                            if stage.get('level'):
+                                response += f"{indent}   🎯 等级: {stage.get('level')}\n"
+                            if stage.get('condition'):
+                                response += f"{indent}   🔮 条件: {stage.get('condition')}\n"
+                        response += "\n"
+            else:
+                # 单条进化链，显示完整路线
+                chain = all_chains[0]
+                stages = chain.get('stages', [])
+                
+                if stages:
+                    response += "**进化路线:**\n"
+                    for i, stage in enumerate(stages):
+                        stage_name = stage.get('name', '')
+                        
+                        response += f"{i+1}. {stage_name}\n"
+                        
+                        # 显示从这个阶段进化的条件
+                        if i < len(stages) - 1:
+                            next_stage = stages[i+1]
+                            if next_stage.get('level'):
+                                response += f"   🎯 等级: {next_stage.get('level')}\n"
+                            if next_stage.get('condition'):
+                                response += f"   🔮 条件: {next_stage.get('condition')}\n"
+                        elif i == len(stages) - 1 and i > 0:
+                            # 最后一个阶段，显示达到这个阶段的条件
+                            if stage.get('level'):
+                                response += f"   🎯 等级: {stage.get('level')}\n"
+                            if stage.get('condition'):
+                                response += f"   🔮 条件: {stage.get('condition')}\n"
+            
+            return response
+        
+        # 3.8.1 最终形态查询
+        elif query_type == 'pet_final_form_query':
+            pet_name = type_match['pet_name']
+            
+            # 获取插件目录
+            plugin_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # 使用多分支查询方法
+            all_chains = self.db_service.get_pet_all_evolution_chains(pet_name)
+            
+            if not all_chains:
+                return f"❌ 未找到宠物 '{pet_name}'"
+            
+            # 收集所有最终形态
+            final_forms = []
+            for chain in all_chains:
+                stages = chain.get('stages', [])
+                if stages:
+                    final_stage = stages[-1]  # 最后一个阶段是最终形态
+                    final_forms.append({
+                        'stage': final_stage,
+                        'chain': chain
+                    })
+            
+            if not final_forms:
+                return f"⚠️ {pet_name} 暂无进化链信息"
+            
+            response = f"🏆 **{pet_name}** 的最终形态:\n\n"
+            
+            # 如果有多个最终形态（多分支）
+            if len(final_forms) > 1:
+                response += f"✨ {pet_name} 有 {len(final_forms)} 个最终形态:\n\n"
+                
+                # 收集所有最终形态的图片
+                image_paths = []
+                
+                for idx, form_info in enumerate(final_forms, 1):
+                    final_stage = form_info['stage']
+                    chain = form_info['chain']
+                    stages = chain.get('stages', [])
+                    
+                    response += f"**分支{idx}:** ✨ **{final_stage.get('name', '')}** (第{final_stage.get('stage', '?')}阶)\n"
+                    
+                    if final_stage.get('level'):
+                        response += f"   🎯 达到等级: {final_stage.get('level')}\n"
+                    if final_stage.get('condition'):
+                        response += f"   🔮 进化条件: {final_stage.get('condition')}\n"
+                    
+                    # 显示完整进化路线
+                    if len(stages) > 1:
+                        stage_names = [s.get('name', '') for s in stages]
+                        response += f"   📈 路线: {' → '.join(stage_names)}\n"
+                    
+                    # 尝试获取该分支最终形态的图片
+                    final_pet_name = final_stage.get('name', '')
+                    if final_pet_name:
+                        # 先尝试精确搜索，如果找不到再尝试模糊搜索
+                        pets = self.db_service.get_pet_info(final_pet_name, fuzzy=False, limit=1)
+                        if not pets:
+                            pets = self.db_service.get_pet_info(final_pet_name, fuzzy=True, limit=1)
+                        
+                        if pets:
+                            img_path = pets[0].get('sprite_image_local')
+                            if img_path:
+                                # 清理路径前缀
+                                if img_path.startswith('./') or img_path.startswith('.\\'):
+                                    img_path = img_path[2:]
+                                # 如果是相对路径，基于插件目录解析
+                                if not os.path.isabs(img_path):
+                                    img_path = os.path.join(plugin_dir, img_path)
+                                # 规范化路径分隔符
+                                img_path = img_path.replace('\\', '/')
+                                if os.path.exists(img_path):
+                                    image_paths.append(img_path)
+                                    logger.info(f"🖼️ 分支{idx} '{final_pet_name}' 的图片: {img_path}")
+                    
+                    response += "\n"
+                
+                # 添加数据来源声明
+                response += DATA_SOURCE_NOTICE
+                
+                # 如果有图片，返回所有图片（最多2张）
+                if image_paths:
+                    return {
+                        'text': response,
+                        'image_paths': image_paths[:2]  # 最多返回前2个分支的图片
+                    }
                 else:
-                    response += "\n⚠️ 暂无进化条件信息\n"
+                    return response
+            else:
+                # 单个最终形态
+                final_stage = final_forms[0]['stage']
+                chain = final_forms[0]['chain']
+                stages = chain.get('stages', [])
+                
+                response += f"✨ **{final_stage.get('name', '')}** (第{final_stage.get('stage', '?')}阶)\n"
+                
+                if final_stage.get('level'):
+                    response += f"🎯 **达到等级:** {final_stage.get('level')}\n"
+                if final_stage.get('condition'):
+                    response += f"🔮 **进化条件:** {final_stage.get('condition')}\n"
+                
+                # 显示完整进化链
+                if len(stages) > 1:
+                    response += f"\n📈 **完整进化路线:**\n"
+                    stage_names = [s.get('name', '') for s in stages]
+                    response += " → ".join(stage_names) + "\n"
+                
+                # 添加数据来源声明
+                response += DATA_SOURCE_NOTICE
+                
+                # 尝试获取最终形态宠物的图片
+                final_pet_name = final_stage.get('name', '')
+                image_path = None
+                
+                if final_pet_name:
+                    # 先尝试精确搜索，如果找不到再尝试模糊搜索
+                    pets = self.db_service.get_pet_info(final_pet_name, fuzzy=False, limit=1)
+                    if not pets:
+                        pets = self.db_service.get_pet_info(final_pet_name, fuzzy=True, limit=1)
+                    
+                    if pets:
+                        image_path = pets[0].get('sprite_image_local')
+                
+                # 处理图片路径
+                if image_path:
+                    # 清理路径前缀
+                    if image_path.startswith('./') or image_path.startswith('.\\'):
+                        image_path = image_path[2:]
+                    # 如果是相对路径，基于插件目录解析
+                    if not os.path.isabs(image_path):
+                        image_path = os.path.join(plugin_dir, image_path)
+                    # 规范化路径分隔符
+                    image_path = image_path.replace('\\', '/')
+                    logger.info(f"🖼️ 最终形态 '{final_pet_name}' 的图片路径: {image_path}")
+                    logger.info(f"🖼️ 文件是否存在: {os.path.exists(image_path)}")
+                
+                # 如果有图片，返回字典；否则返回纯文本
+                if image_path and os.path.exists(image_path):
+                    return {
+                        'text': response,
+                        'image_path': image_path
+                    }
+                else:
+                    return response
+        
+        # 3.8.2 进化后形态查询
+        elif query_type == 'pet_after_evolution_query':
+            pet_name = type_match['pet_name']
+            
+            # 尝试获取所有进化分支
+            all_chains = self.db_service.get_pet_all_evolution_chains(pet_name)
+            
+            if not all_chains:
+                return f"❌ 未找到宠物 '{pet_name}'"
+            
+            # 如果有多个分支，显示所有分支
+            if len(all_chains) > 1:
+                response = f"➡️ **{pet_name}** 可以进化为以下形态:\n\n"
+                
+                for idx, chain in enumerate(all_chains, 1):
+                    next_stage = chain.get('next_stage')
+                    if next_stage:
+                        stage_name = next_stage.get('name', '')
+                        
+                        response += f"**分支{idx}:** ✨ {stage_name} (第{next_stage.get('stage', '?')}阶)\n"
+                        if next_stage.get('level'):
+                            response += f"   🎯 进化等级: {next_stage.get('level')}\n"
+                        if next_stage.get('condition'):
+                            response += f"   🔮 进化条件: {next_stage.get('condition')}\n"
+                        response += "\n"
                 
                 return response
-            else:
+            
+            # 单条进化链
+            chain = all_chains[0]
+            next_stage = chain.get('next_stage')
+            
+            if not next_stage:
+                return f"✅ {pet_name} 已经是最终形态，没有后续进化了"
+            
+            stage_name = next_stage.get('name', '')
+            
+            response = f"➡️ **{pet_name}** 进化后的形态:\n\n"
+            response += f"✨ **{stage_name}** (第{next_stage.get('stage', '?')}阶)\n"
+            
+            if next_stage.get('level'):
+                response += f"🎯 **进化等级:** {next_stage.get('level')}\n"
+            if next_stage.get('condition'):
+                response += f"🔮 **进化条件:** {next_stage.get('condition')}\n"
+            
+            return response
+        
+        # 3.8.3 进化前形态查询
+        elif query_type == 'pet_before_evolution_query':
+            pet_name = type_match['pet_name']
+            evolution_info = self.db_service.get_pet_evolution_chain(pet_name)
+            
+            if not evolution_info:
                 return f"❌ 未找到宠物 '{pet_name}'"
+            
+            if not evolution_info.get('stages'):
+                return f"⚠️ {pet_name} 暂无进化链信息"
+            
+            previous_stage = evolution_info.get('previous_stage')
+            if not previous_stage:
+                return f"ℹ️ {pet_name} 是初始形态，没有进化前的形态"
+            
+            response = f"⬅️ **{pet_name}** 进化前的形态:\n\n"
+            response += f"✨ **{previous_stage.get('name', '')}** (第{previous_stage.get('stage', '?')}阶)\n"
+            
+            if previous_stage.get('level'):
+                response += f"🎯 **进化等级:** {previous_stage.get('level')}\n"
+            if previous_stage.get('condition'):
+                response += f"🔮 **进化条件:** {previous_stage.get('condition')}\n"
+            
+            return response
+        
+        # 3.8.4 完整进化链查询
+        elif query_type == 'pet_full_evolution_query':
+            pet_name = type_match['pet_name']
+            
+            # 使用新的多分支查询方法
+            all_chains = self.db_service.get_pet_all_evolution_chains(pet_name)
+            
+            if not all_chains:
+                return f"❌ 未找到宠物 '{pet_name}'"
+            
+            response = f"🔄 **{pet_name}** 的完整进化链:\n\n"
+            
+            # 如果有多个分支，显示树状结构
+            if len(all_chains) > 1:
+                # 找到共同路径
+                common_stages = []
+                first_chain_stages = all_chains[0]['stages']
+                
+                for i, stage in enumerate(first_chain_stages):
+                    is_common = True
+                    for chain in all_chains[1:]:
+                        if i >= len(chain['stages']) or chain['stages'][i].get('name') != stage.get('name'):
+                            is_common = False
+                            break
+                    if is_common:
+                        common_stages.append(stage)
+                    else:
+                        break
+                
+                # 显示共同路径
+                if common_stages:
+                    response += "**共同进化路径:**\n"
+                    for i, stage in enumerate(common_stages):
+                        stage_name = stage.get('name', '')
+                        response += f"  {i+1}. {stage_name}\n"
+                        
+                        if i < len(common_stages) - 1:
+                            next_stage = common_stages[i+1]
+                            if next_stage.get('level'):
+                                response += f"     🎯 等级: {next_stage.get('level')}\n"
+                            if next_stage.get('condition'):
+                                response += f"     🔮 条件: {next_stage.get('condition')}\n"
+                    response += "\n"
+                
+                # 显示各个分支
+                for idx, chain in enumerate(all_chains, 1):
+                    diverged_stages = chain['stages'][len(common_stages):]
+                    
+                    if diverged_stages:
+                        response += f"**分支{idx}:**\n"
+                        for i, stage in enumerate(diverged_stages):
+                            stage_name = stage.get('name', '')
+                            indent = "  " if i == 0 else "    "
+                            response += f"{indent}{len(common_stages)+i+1}. {stage_name}\n"
+                            
+                            if stage.get('level'):
+                                response += f"{indent}   🎯 等级: {stage.get('level')}\n"
+                            if stage.get('condition'):
+                                response += f"{indent}   🔮 条件: {stage.get('condition')}\n"
+                        response += "\n"
+            else:
+                # 单条进化链
+                chain = all_chains[0]
+                stages = chain.get('stages', [])
+                
+                if stages:
+                    response += "**进化路线:**\n"
+                    for i, stage in enumerate(stages):
+                        stage_name = stage.get('name', '')
+                        response += f"{i+1}. {stage_name}\n"
+                        
+                        if i < len(stages) - 1:
+                            next_stage = stages[i+1]
+                            if next_stage.get('level'):
+                                response += f"   🎯 等级: {next_stage.get('level')}\n"
+                            if next_stage.get('condition'):
+                                response += f"   🔮 条件: {next_stage.get('condition')}\n"
+                        elif i == len(stages) - 1 and i > 0:
+                            if stage.get('level'):
+                                response += f"   🎯 等级: {stage.get('level')}\n"
+                            if stage.get('condition'):
+                                response += f"   🔮 条件: {stage.get('condition')}\n"
+            
+            return response
         
         # 3.9 宠物六维/种族值查询
         elif query_type == 'pet_stats_query':
@@ -2540,6 +2975,221 @@ class RocoWorldWiki(Star):
                 return response
             else:
                 return f"❌ 未找到宠物 '{pet_name}'"
+        
+        # 3.8.5 特定阶段形态查询
+        elif query_type == 'pet_stage_query':
+            pet_name = type_match['pet_name']
+            stage_number = type_match.get('stage_number')  # 可能为None（如果是模糊查询）
+            
+            # 获取插件目录
+            plugin_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # 如果有明确的阶段数字，尝试从进化链中查找
+            if stage_number:
+                all_chains = self.db_service.get_pet_all_evolution_chains(pet_name)
+                
+                if not all_chains:
+                    return f"❌ 未找到宠物 '{pet_name}'"
+                
+                # 在所有进化分支中查找指定阶段
+                target_stages = []  # 可能有多个分支的同一阶段
+                
+                for chain in all_chains:
+                    stages = chain.get('stages', [])
+                    for stage in stages:
+                        if stage.get('stage') == stage_number:
+                            target_stages.append({
+                                'stage': stage,
+                                'chain': chain
+                            })
+                            break
+                
+                if not target_stages:
+                    return f"❌ {pet_name} 没有第{stage_number}阶段"
+                
+                # 如果只有一个阶段，直接显示
+                if len(target_stages) == 1:
+                    target_stage = target_stages[0]['stage']
+                    target_chain = target_stages[0]['chain']
+                    
+                    # 获取该阶段宠物的详细信息
+                    stage_pet_name = target_stage.get('name', '')
+                    if not stage_pet_name:
+                        return f"❌ 无法获取第{stage_number}阶段的宠物名称"
+                    
+                    # 先尝试精确搜索，如果找不到再尝试模糊搜索
+                    pets = self.db_service.get_pet_info(stage_pet_name, fuzzy=False, limit=1)
+                    if not pets:
+                        logger.info(f"⚠️ 精确搜索未找到 '{stage_pet_name}'，尝试模糊搜索")
+                        pets = self.db_service.get_pet_info(stage_pet_name, fuzzy=True, limit=1)
+                    
+                    # 即使找不到宠物记录，也显示进化链中的信息
+                    response = f"🐾 **{stage_pet_name}** ({pet_name}的第{stage_number}阶段)\n"
+                    response += "━━━━━━━━━━━━━━\n"
+                    
+                    if pets:
+                        # 有宠物记录，显示详细信息
+                        pet = pets[0]
+                        
+                        # 显示基本信息
+                        if pet.get('element'):
+                            response += f"🔮 属性: {pet['element']}系\n"
+                        if pet.get('stage'):
+                            response += f"📊 阶段: {pet['stage']}\n"
+                        if pet.get('form') and pet['form'] != '原始形态':
+                            response += f"✨ 形态: {pet['form']}\n"
+                        
+                        # 显示描述
+                        if pet.get('description'):
+                            response += f"\n📝 **介绍:**\n{pet['description']}\n"
+                        
+                        # 尝试获取图片路径
+                        image_path = pet.get('sprite_image_local')
+                    else:
+                        # 没有宠物记录，仅显示提示信息
+                        response += f"\n⚠️ 暂无该宠物的详细信息\n"
+                        image_path = None
+                    
+                    # 显示进化条件
+                    if target_stage.get('level'):
+                        response += f"🎯 进化等级: {target_stage.get('level')}\n"
+                    if target_stage.get('condition'):
+                        response += f"🔮 进化条件: {target_stage.get('condition')}\n"
+                    
+                    # 添加数据来源声明
+                    response += DATA_SOURCE_NOTICE
+                    
+                    # 处理图片路径
+                    if image_path:
+                        logger.info(f"🖼️ 宠物 '{stage_pet_name}' (第{stage_number}阶段) 的图片路径: {image_path}")
+                        # 清理路径前缀（移除 ./ 或 .\）
+                        if image_path.startswith('./') or image_path.startswith('.\\'):
+                            image_path = image_path[2:]
+                        # 如果是相对路径，基于插件目录解析
+                        if not os.path.isabs(image_path):
+                            image_path = os.path.join(plugin_dir, image_path)
+                        # 规范化路径分隔符
+                        image_path = image_path.replace('\\', '/')
+                        logger.info(f"🖼️ 解析后的完整路径: {image_path}")
+                        logger.info(f"🖼️ 文件是否存在: {os.path.exists(image_path)}")
+                    
+                    if image_path and os.path.exists(image_path):
+                        # 返回包含图片的字典
+                        return {
+                            'text': response,
+                            'image_path': image_path
+                        }
+                    else:
+                        # 没有图片，只返回文本
+                        return response
+                else:
+                    # 有多个分支的同一阶段，显示所有分支
+                    response = f"🐾 **{pet_name}** 的第{stage_number}阶段有 {len(target_stages)} 个分支:\n\n"
+                    
+                    # 收集所有分支的图片
+                    image_paths = []
+                    
+                    for idx, target_info in enumerate(target_stages, 1):
+                        target_stage = target_info['stage']
+                        target_chain = target_info['chain']
+                        stage_pet_name = target_stage.get('name', '')
+                        
+                        response += f"**分支{idx}:** ✨ **{stage_pet_name}**\n"
+                        
+                        if target_stage.get('level'):
+                            response += f"   🎯 进化等级: {target_stage.get('level')}\n"
+                        if target_stage.get('condition'):
+                            response += f"   🔮 进化条件: {target_stage.get('condition')}\n"
+                        
+                        # 显示该分支的完整路线
+                        stages = target_chain.get('stages', [])
+                        if len(stages) > 1:
+                            stage_names = [s.get('name', '') for s in stages]
+                            response += f"   📈 路线: {' → '.join(stage_names)}\n"
+                        
+                        # 尝试获取该分支宠物的图片
+                        if stage_pet_name:
+                            # 先尝试精确搜索，如果找不到再尝试模糊搜索
+                            pets = self.db_service.get_pet_info(stage_pet_name, fuzzy=False, limit=1)
+                            if not pets:
+                                pets = self.db_service.get_pet_info(stage_pet_name, fuzzy=True, limit=1)
+                            
+                            if pets:
+                                img_path = pets[0].get('sprite_image_local')
+                                if img_path:
+                                    # 清理路径前缀
+                                    if img_path.startswith('./') or img_path.startswith('.\\'):
+                                        img_path = img_path[2:]
+                                    # 如果是相对路径，基于插件目录解析
+                                    if not os.path.isabs(img_path):
+                                        img_path = os.path.join(plugin_dir, img_path)
+                                    # 规范化路径分隔符
+                                    img_path = img_path.replace('\\', '/')
+                                    if os.path.exists(img_path):
+                                        image_paths.append(img_path)
+                                        logger.info(f"🖼️ 分支{idx} '{stage_pet_name}' 的图片: {img_path}")
+                            else:
+                                logger.info(f"⚠️ 分支{idx} '{stage_pet_name}' 无宠物记录")
+                        
+                        response += "\n"
+                    
+                    # 添加数据来源声明
+                    response += DATA_SOURCE_NOTICE
+                    
+                    # 如果有图片，返回所有图片（最多2张）
+                    if image_paths:
+                        return {
+                            'text': response,
+                            'image_paths': image_paths[:2]  # 最多返回前2个分支的图片
+                        }
+                    else:
+                        return response
+            
+            # 如果没有明确的阶段数字，使用原有的模糊查询逻辑
+            pets = self.db_service.get_pet_info(pet_name, fuzzy=True, limit=1)
+            
+            if not pets:
+                return f"❌ 未找到宠物 '{pet_name}'"
+            
+            pet = pets[0]
+            response = f"🐾 **{pet['name']}**\n"
+            response += "━━━━━━━━━━━━━━\n"
+            
+            # 显示基本信息
+            if pet.get('element'):
+                response += f"🔮 属性: {pet['element']}系\n"
+            if pet.get('stage'):
+                response += f"📊 阶段: {pet['stage']}\n"
+            if pet.get('form') and pet['form'] != '原始形态':
+                response += f"✨ 形态: {pet['form']}\n"
+            if pet.get('rarity'):
+                response += f"💎 稀有度: {pet['rarity']}\n"
+            
+            # 显示描述
+            if pet.get('description'):
+                response += f"\n📝 **介绍:**\n{pet['description']}\n"
+            
+            # 尝试获取图片路径
+            image_path = None
+            if pet.get('sprite_image_local'):
+                image_path = pet['sprite_image_local']
+                # 清理路径前缀
+                if image_path.startswith('./') or image_path.startswith('.\\'):
+                    image_path = image_path[2:]
+                # 如果是相对路径，转换为绝对路径
+                if not os.path.isabs(image_path):
+                    image_path = os.path.join(plugin_dir, image_path)
+                # 规范化路径分隔符
+                image_path = image_path.replace('\\', '/')
+            
+            # 如果有图片，返回字典；否则返回纯文本
+            if image_path and os.path.exists(image_path):
+                return {
+                    'text': response,
+                    'image_path': image_path
+                }
+            else:
+                return response
         
         # 1. 属性克制查询
         if query_type == 'type_advantage':
@@ -3078,8 +3728,24 @@ class RocoWorldWiki(Star):
         smart_query = self._parse_type_query(query_content)
         if smart_query:
             logger.info(f"🧠 规则匹配成功: {smart_query.get('type')}")
-            response = self._handle_type_query(smart_query)
-            yield event.plain_result(response)
+            result = self._handle_type_query(smart_query)
+            
+            # 检查是否返回字典（包含图片）
+            if isinstance(result, dict):
+                # 先发送文本
+                yield event.plain_result(result['text'])
+                
+                # 检查是多张图片还是单张图片
+                if 'image_paths' in result and result['image_paths']:
+                    # 发送多张图片
+                    for img_path in result['image_paths']:
+                        yield event.image_result(img_path)
+                elif 'image_path' in result and result['image_path']:
+                    # 发送单张图片
+                    yield event.image_result(result['image_path'])
+            else:
+                # 纯文本响应
+                yield event.plain_result(result)
             return
         
         # 2. 基础查询：宠物和技能搜索（大多数情况在这里处理）
@@ -3294,8 +3960,19 @@ class RocoWorldWiki(Star):
             clean_query = clean_query.replace(suffix, '').strip()
                 
         # 额外清理常见语气词、助词和无意义后缀（但不要移除"图片"等关键词）
-        for word in ['有什么', '有哪些', '是什么', '是多少', '的资料', '的介绍', '的信息', '的详情', '长什么样', '的样子', '的图片', '的照片', '的立绘', '的头像', '的图标', '的', '吗', '呢', '吧', '精灵', '宠物', '怪兽', '魔灵', '伙伴']:
-            clean_query = clean_query.replace(word, '').strip()
+        # 注意：只清理末尾的后缀，避免误删宠物名称中的部分
+        import re
+        for word in ['有什么', '有哪些', '是什么', '是多少', '的资料', '的介绍', '的信息', '的详情', '长什么样', '的图片', '的照片', '的立绘', '的头像', '的图标']:
+            # 使用正则确保只匹配末尾
+            clean_query = re.sub(re.escape(word) + r'$', '', clean_query).strip()
+        
+        # 对于"的样子"、"的"等短词，需要更谨慎：只有当它们不在括号内时才清理
+        # 例如："丢丢（火山附近的样子）" 不应该清理 "的样子"
+        # 但 "喵喵的样子" 应该清理为 "喵喵"
+        if '(' not in clean_query and '（' not in clean_query:
+            # 没有括号，可以安全清理
+            for word in ['的样子', '的', '吗', '呢', '吧', '精灵', '宠物', '怪兽', '魔灵', '伙伴']:
+                clean_query = re.sub(re.escape(word) + r'$', '', clean_query).strip()
                 
         logger.info(f"🔧 清理后查询词: '{clean_query}' (原始: '{query_content}')")
         

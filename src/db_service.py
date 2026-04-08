@@ -7,7 +7,18 @@ Wiki 数据库查询服务
 import sqlite3
 import os
 from typing import Optional, List, Dict, Any, Tuple
-from astrbot.api import logger
+
+# Mock astrbot logger if not available (for standalone testing)
+try:
+    from astrbot.api import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+        logger.addHandler(handler)
 
 
 class WikiDBService:
@@ -83,7 +94,7 @@ class WikiDBService:
         cursor = self.conn.cursor()
         
         try:
-            # 智能匹配：如果输入包含关键词（如“沙地”、“雪山”），尝试匹配特殊形态
+            # 智能匹配：如果输入包含关键词（如"沙地"、"雪山"），尝试匹配特殊形态
             keywords_map = {
                 '沙地': ['沙地', '沙漠'],
                 '雪山': ['雪山', '雪地', '冰雪'],
@@ -94,6 +105,13 @@ class WikiDBService:
                 '竹林': ['竹林'],
                 '本命年': ['本命年', '新年'],
                 '噩梦': ['噩梦'],
+                # 新增：鸭吉吉变体关键词
+                '紧实': ['紧实', '紧凑'],
+                '蓬松': ['蓬松', '松散'],
+                '起来': ['起来', '起床'],
+                '急了': ['急了', '着急', '急急急'],
+                '燃了': ['燃了', '燃烧'],
+                '等了': ['等了', '等待', '等一等'],
             }
             
             matched_suffix = None
@@ -111,46 +129,82 @@ class WikiDBService:
                            size, weight, distribution, description, stage, type,
                            form, initial_stage_name, has_alt_color, update_version,
                            quest_tasks, quest_skill_stones, bloodline_skills, learnable_skill_stones,
-                           skills, sprite_image_local
+                           skills, sprite_image_local, evolution_stages
                     FROM pets
                     WHERE id = ?
                     LIMIT ?
                 """
                 cursor.execute(query, (int(clean_name), limit))
             elif fuzzy:
-                # 如果匹配到关键词，优先搜索包含该关键词的宠物
-                if matched_suffix:
-                    query = """
+                # 先尝试精确匹配
+                query_exact = """
+                    SELECT id, name, element, element2, hp, physical_attack, magic_attack,
+                           physical_defense, magic_defense, speed, ability, ability_desc,
+                           size, weight, distribution, description, stage, type,
+                           form, initial_stage_name, has_alt_color, update_version,
+                           quest_tasks, quest_skill_stones, bloodline_skills, learnable_skill_stones,
+                           skills, sprite_image_local, evolution_stages
+                    FROM pets
+                    WHERE name = ?
+                    LIMIT ?
+                """
+                cursor.execute(query_exact, (name, limit))
+                rows = cursor.fetchall()
+                
+                # 如果精确匹配有结果，直接返回
+                if not rows:
+                    # 如果没有精确匹配，再尝试前缀匹配
+                    query_prefix = """
                         SELECT id, name, element, element2, hp, physical_attack, magic_attack,
                                physical_defense, magic_defense, speed, ability, ability_desc,
                                size, weight, distribution, description, stage, type,
                                form, initial_stage_name, has_alt_color, update_version,
                                quest_tasks, quest_skill_stones, bloodline_skills, learnable_skill_stones,
-                               skills, sprite_image_local
-                        FROM pets
-                        WHERE name LIKE ?
-                        ORDER BY 
-                            CASE 
-                                WHEN name LIKE '%(' || ? || '%)' THEN 1
-                                ELSE 2
-                            END,
-                            name
-                        LIMIT ?
-                    """
-                    cursor.execute(query, (f"%{matched_suffix}%", matched_suffix, limit))
-                else:
-                    query = """
-                        SELECT id, name, element, element2, hp, physical_attack, magic_attack,
-                               physical_defense, magic_defense, speed, ability, ability_desc,
-                               size, weight, distribution, description, stage, type,
-                               form, initial_stage_name, has_alt_color, update_version,
-                               quest_tasks, quest_skill_stones, bloodline_skills, learnable_skill_stones,
-                               skills, sprite_image_local
+                               skills, sprite_image_local, evolution_stages
                         FROM pets
                         WHERE name LIKE ?
                         LIMIT ?
                     """
-                    cursor.execute(query, (f"%{name}%", limit))
+                    cursor.execute(query_prefix, (f"{name}%", limit))
+                    rows = cursor.fetchall()
+                
+                if not rows:
+                    # 如果还没有结果，尝试关键词匹配
+                    if matched_suffix:
+                        query = """
+                            SELECT id, name, element, element2, hp, physical_attack, magic_attack,
+                                   physical_defense, magic_defense, speed, ability, ability_desc,
+                                   size, weight, distribution, description, stage, type,
+                                   form, initial_stage_name, has_alt_color, update_version,
+                                   quest_tasks, quest_skill_stones, bloodline_skills, learnable_skill_stones,
+                                   skills, sprite_image_local, evolution_stages
+                            FROM pets
+                            WHERE name LIKE ?
+                            ORDER BY 
+                                CASE 
+                                    WHEN name LIKE '%(' || ? || '%)' THEN 1
+                                    ELSE 2
+                                END,
+                                name
+                            LIMIT ?
+                        """
+                        cursor.execute(query, (f"%{matched_suffix}%", matched_suffix, limit))
+                        rows = cursor.fetchall()
+                    else:
+                        # 最后才使用模糊匹配
+                        query = """
+                            SELECT id, name, element, element2, hp, physical_attack, magic_attack,
+                                   physical_defense, magic_defense, speed, ability, ability_desc,
+                                   size, weight, distribution, description, stage, type,
+                                   form, initial_stage_name, has_alt_color, update_version,
+                                   quest_tasks, quest_skill_stones, bloodline_skills, learnable_skill_stones,
+                                   skills, sprite_image_local, evolution_stages
+                            FROM pets
+                            WHERE name LIKE ?
+                            LIMIT ?
+                        """
+                        cursor.execute(query, (f"%{name}%", limit))
+                        rows = cursor.fetchall()
             else:
                 query = """
                     SELECT id, name, element, element2, hp, physical_attack, magic_attack,
@@ -158,15 +212,17 @@ class WikiDBService:
                            size, weight, distribution, description, stage, type,
                            form, initial_stage_name, has_alt_color, update_version,
                            quest_tasks, quest_skill_stones, bloodline_skills, learnable_skill_stones,
-                           skills, sprite_image_local
+                           skills, sprite_image_local, evolution_stages
                     FROM pets
                     WHERE name = ?
                     LIMIT ?
                 """
                 cursor.execute(query, (name, limit))
+                rows = cursor.fetchall()
             
-            rows = cursor.fetchall()
+            # rows已经在上面的if-else分支中赋值
             results = []
+            import json
             for row in rows:
                 # 将 sqlite3.Row 转换为字典
                 row_dict = dict(row)
@@ -178,6 +234,15 @@ class WikiDBService:
                     full_element = f"{element}+{element2}"
                 else:
                     full_element = element
+                
+                # 解析进化阶段数据
+                evolution_stages_raw = row_dict.get('evolution_stages', '')
+                evolution_stages = []
+                if evolution_stages_raw:
+                    try:
+                        evolution_stages = json.loads(evolution_stages_raw)
+                    except:
+                        evolution_stages = []
                 
                 results.append({
                     'id': row_dict.get('id'),
@@ -206,7 +271,8 @@ class WikiDBService:
                     'bloodline_skills': row_dict.get('bloodline_skills', ''),
                     'learnable_skill_stones': row_dict.get('learnable_skill_stones', ''),
                     'skills': row_dict.get('skills') or '',
-                    'sprite_image_local': self._normalize_path(row_dict.get('sprite_image_local'))
+                    'sprite_image_local': self._normalize_path(row_dict.get('sprite_image_local')),
+                    'evolution_stages': evolution_stages
                 })
             
             # 对结果进行排序：优先返回有六维数据的宠物
@@ -223,6 +289,238 @@ class WikiDBService:
             
         except Exception as e:
             logger.error(f"❌ 查询宠物失败: {e}")
+            return []
+    
+    def get_pet_evolution_chain(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        获取宠物的完整进化链（单条）
+        
+        Args:
+            name: 宠物名称
+            
+        Returns:
+            包含进化链信息的字典，包括：
+            - stages: 进化阶段列表
+            - current_stage: 当前阶段序号
+            - previous_stage: 前一阶段信息
+            - next_stage: 下一阶段信息
+            - final_stage: 最终阶段信息
+        """
+        self._ensure_connection()
+        cursor = self.conn.cursor()
+        
+        try:
+            import json
+            
+            # 查询宠物的进化阶段数据
+            query = """
+                SELECT name, stage, evolution_stages
+                FROM pets
+                WHERE name = ?
+            """
+            cursor.execute(query, (name,))
+            row = cursor.fetchone()
+            
+            if not row:
+                logger.warning(f"⚠️ 未找到宠物: {name}")
+                return None
+            
+            row_dict = dict(row)
+            evolution_stages_raw = row_dict.get('evolution_stages', '')
+            
+            if not evolution_stages_raw:
+                logger.info(f"ℹ️ 宠物 '{name}' 没有进化链数据")
+                return {
+                    'name': name,
+                    'stages': [],
+                    'current_stage': None,
+                    'previous_stage': None,
+                    'next_stage': None,
+                    'final_stage': None,
+                    'message': '暂无进化链信息'
+                }
+            
+            try:
+                evolution_stages = json.loads(evolution_stages_raw)
+            except Exception as e:
+                logger.error(f"❌ 解析进化链数据失败: {e}")
+                return None
+            
+            if not evolution_stages:
+                return {
+                    'name': name,
+                    'stages': [],
+                    'current_stage': None,
+                    'previous_stage': None,
+                    'next_stage': None,
+                    'final_stage': None,
+                    'message': '暂无进化链信息'
+                }
+            
+            # 确定当前阶段
+            current_stage_num = None
+            stage_str = row_dict.get('stage', '')
+            if '一阶' in stage_str or '初阶' in stage_str:
+                current_stage_num = 1
+            elif '二阶' in stage_str:
+                current_stage_num = 2
+            elif '三阶' in stage_str:
+                current_stage_num = 3
+            elif '四阶' in stage_str:
+                current_stage_num = 4
+            elif '五阶' in stage_str:
+                current_stage_num = 5
+            
+            # 如果没有明确的阶段信息，尝试通过名称匹配
+            if current_stage_num is None:
+                for stage in evolution_stages:
+                    if stage.get('name') == name:
+                        current_stage_num = stage.get('stage')
+                        break
+            
+            # 获取各阶段信息
+            current_stage = None
+            previous_stage = None
+            next_stage = None
+            final_stage = evolution_stages[-1] if evolution_stages else None
+            
+            for stage in evolution_stages:
+                stage_num = stage.get('stage')
+                if stage_num == current_stage_num:
+                    current_stage = stage
+                    # 查找前一个阶段
+                    if stage_num > 1:
+                        for prev in evolution_stages:
+                            if prev.get('stage') == stage_num - 1:
+                                previous_stage = prev
+                                break
+                    # 查找下一个阶段
+                    if stage_num < len(evolution_stages):
+                        for nxt in evolution_stages:
+                            if nxt.get('stage') == stage_num + 1:
+                                next_stage = nxt
+                                break
+                    break
+            
+            result = {
+                'name': name,
+                'stages': evolution_stages,
+                'current_stage': current_stage,
+                'previous_stage': previous_stage,
+                'next_stage': next_stage,
+                'final_stage': final_stage,
+                'total_stages': len(evolution_stages)
+            }
+            
+            logger.info(f"🔍 获取宠物 '{name}' 的进化链，共 {len(evolution_stages)} 个阶段")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ 获取进化链失败: {e}")
+            return None
+    
+    def get_pet_all_evolution_chains(self, name: str) -> List[Dict[str, Any]]:
+        """
+        获取宠物的所有进化分支（支持多分支进化）
+        
+        Args:
+            name: 宠物名称
+            
+        Returns:
+            进化链列表，每个元素包含：
+            - stages: 进化阶段列表（包含name、level、condition、image等字段）
+            - current_stage: 当前阶段序号
+            - next_stage: 下一阶段信息
+            - final_stage: 最终阶段信息
+        """
+        self._ensure_connection()
+        cursor = self.conn.cursor()
+        
+        try:
+            import json
+            
+            # 查找所有initial_stage_name为该宠物的记录
+            query = """
+                SELECT name, stage, evolution_stages, sprite_image_local, evolution_condition
+                FROM pets
+                WHERE initial_stage_name = ? AND evolution_stages != '' AND evolution_stages IS NOT NULL
+            """
+            cursor.execute(query, (name,))
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return []
+            
+            all_chains = []
+            seen_chains = set()  # 用于去重
+            
+            for row in rows:
+                row_dict = dict(row)
+                pet_name = row_dict.get('name')
+                evolution_stages_raw = row_dict.get('evolution_stages', '')
+                pet_sprite_image = row_dict.get('sprite_image_local')
+                pet_evolution_condition = row_dict.get('evolution_condition')
+                
+                if not evolution_stages_raw:
+                    continue
+                
+                try:
+                    evolution_stages = json.loads(evolution_stages_raw)
+                except:
+                    continue
+                
+                if not evolution_stages:
+                    continue
+                
+                # 生成唯一标识用于去重（基于进化链路径）
+                chain_key = tuple(s.get('name', '') for s in evolution_stages)
+                if chain_key in seen_chains:
+                    continue  # 跳过重复的进化链
+                seen_chains.add(chain_key)
+                
+                # 为每个stage补充图片路径和进化条件
+                enriched_stages = []
+                for i, stage in enumerate(evolution_stages):
+                    enriched_stage = stage.copy()
+                    stage_name = stage.get('name')
+                    
+                    # 为每个阶段查询图片和条件
+                    if stage_name:
+                        cursor.execute(
+                            "SELECT sprite_image_local, evolution_condition FROM pets WHERE name = ?",
+                            (stage_name,)
+                        )
+                        stage_row = cursor.fetchone()
+                        if stage_row:
+                            if stage_row[0]:
+                                enriched_stage['image'] = self._normalize_path(stage_row[0])
+                            # 如果是最后一个阶段，使用它的evolution_condition
+                            if i == len(evolution_stages) - 1 and stage_row[1]:
+                                enriched_stage['condition'] = stage_row[1]
+                    
+                    enriched_stages.append(enriched_stage)
+                
+                # 确定当前阶段（如果是初始形态，总是第1阶）
+                current_stage = enriched_stages[0] if enriched_stages else None
+                next_stage = enriched_stages[1] if len(enriched_stages) > 1 else None
+                final_stage = enriched_stages[-1] if enriched_stages else None
+                
+                chain_info = {
+                    'name': name,
+                    'stages': enriched_stages,
+                    'current_stage': current_stage,
+                    'next_stage': next_stage,
+                    'final_stage': final_stage,
+                    'total_stages': len(enriched_stages)
+                }
+                
+                all_chains.append(chain_info)
+            
+            logger.info(f"🔍 获取宠物 '{name}' 的所有进化链，共 {len(all_chains)} 个分支")
+            return all_chains
+            
+        except Exception as e:
+            logger.error(f"❌ 获取所有进化链失败: {e}")
             return []
     
     def get_skill_info(self, name: str, fuzzy: bool = True, limit: int = 5) -> List[Dict[str, Any]]:
@@ -673,6 +971,67 @@ class WikiDBService:
             
         except Exception as e:
             logger.error(f"❌ 属性筛选失败: {e}")
+            return []
+    
+    def get_pets_by_dual_element(self, element1: str, element2: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        根据双属性获取宠物列表
+        
+        Args:
+            element1: 第一个属性
+            element2: 第二个属性
+            limit: 返回结果数量限制
+            
+        Returns:
+            宠物信息列表
+        """
+        self._ensure_connection()
+        cursor = self.conn.cursor()
+        
+        try:
+            query = """
+                SELECT id, name, element, element2, hp, physical_attack, magic_attack,
+                       physical_defense, magic_defense, speed, ability, skills, sprite_image_local
+                FROM pets
+                WHERE (element = ? AND element2 = ?) OR (element = ? AND element2 = ?)
+                ORDER BY name
+                LIMIT ?
+            """
+            cursor.execute(query, (element1, element2, element2, element1, limit))
+            
+            rows = cursor.fetchall()
+            results = []
+            for row in rows:
+                row_dict = dict(row)
+                
+                # 合并主属性和第二属性
+                elem = row_dict.get('element') or '未知'
+                elem2 = row_dict.get('element2', '')
+                if elem2 and elem2 != '无' and elem2 != 'None':
+                    full_element = f"{elem}+{elem2}"
+                else:
+                    full_element = elem
+                
+                results.append({
+                    'id': row_dict.get('id'),
+                    'name': row_dict.get('name'),
+                    'element': full_element,
+                    'hp': row_dict.get('hp') or 0,
+                    'physical_attack': row_dict.get('physical_attack') or 0,
+                    'magic_attack': row_dict.get('magic_attack') or 0,
+                    'physical_defense': row_dict.get('physical_defense') or 0,
+                    'magic_defense': row_dict.get('magic_defense') or 0,
+                    'speed': row_dict.get('speed') or 0,
+                    'ability': row_dict.get('ability') or '无',
+                    'skills': row_dict.get('skills') or '',
+                    'sprite_image_local': self._normalize_path(row_dict.get('sprite_image_local'))
+                })
+            
+            logger.info(f"🔍 按双属性 '{element1}+{element2}' 搜索宠物，找到 {len(results)} 条结果")
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ 双属性筛选失败: {e}")
             return []
     
     def get_top_skills_by_power(self, element: str = None, limit: int = 10) -> List[Dict[str, Any]]:
