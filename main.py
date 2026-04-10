@@ -2285,19 +2285,35 @@ class RocoWorldWiki(Star):
         # 优先匹配最终形态查询（必须在普通进化查询之前）
         # "某精灵的最终形态"、"最终进化是什么"
         # 注意：需要正确处理"XX的最终形态"、"XX的最后进化"、"XX的终极形态"等格式
-        pet_final_form = re.search(r'(.+?)(?:的最终形态|的最后进化|的终极形态|的最终进化)', query)
+        pet_final_form = re.search(r'([^\s]+?)(?:的)?(?:最终形态|最后进化|终极形态|最终进化)', query)
         if pet_final_form:
             return {
                 'type': 'pet_final_form_query',
                 'pet_name': pet_final_form.group(1).strip()
             }
         
-        # 再尝试匹配详细的进化查询
-        pet_evolution_query = re.search(r'([\S]+?)(?:怎么进化|如何进化|进化条件|进化成什么|进化形态|进化至下一阶段|进化需要什么|下一阶段的条件)', query)
+        # 再尝试匹配详细的进化查询（不包括“下一阶段”）
+        pet_evolution_query = re.search(r'([^\s]+?)(?:的)?(?:怎么进化|如何进化|进化条件|进化成什么|进化形态|进化至下一阶段|进化需要什么|下一阶段的条件|会进化成|会变成|变成什么|进化成啥)', query)
         if pet_evolution_query:
             return {
                 'type': 'pet_evolution_query',
                 'pet_name': pet_evolution_query.group(1).strip()
+            }
+        
+        # “某精灵的下一阶段” - 单独处理，只返回下一个进化形态
+        pet_next_stage = re.search(r'([^\s]+?)(?:的)?(?:下一阶段|下一个是什么|后面是什么|下一步)', query)
+        if pet_next_stage:
+            return {
+                'type': 'pet_next_stage_query',
+                'pet_name': pet_next_stage.group(1).strip()
+            }
+        
+        # "某精灵的进化"（简单进化查询）- 必须在 simple_evolution 之前
+        simple_pet_evolution = re.search(r'^([^\s的]+?)的进化$', query)
+        if simple_pet_evolution:
+            return {
+                'type': 'pet_evolution_query',
+                'pet_name': simple_pet_evolution.group(1).strip()
             }
         
         # 再尝试匹配简单的“XX进化”格式（确保不是其他类型）
@@ -2312,7 +2328,7 @@ class RocoWorldWiki(Star):
                 }
         
         # "某精灵进化后的样子"、"进化后变成什么"
-        pet_after_evolution = re.search(r'(.+?)(?:进化后的样子|进化后变成|进化后会变成|进化后是什么)', query)
+        pet_after_evolution = re.search(r'([^\s的]+?)(?:进化后的样子|进化后变成|进化后会变成|进化后是什么)', query)
         if pet_after_evolution:
             return {
                 'type': 'pet_after_evolution_query',
@@ -2320,7 +2336,7 @@ class RocoWorldWiki(Star):
             }
         
         # "某精灵以前是什么样子"、"进化前是什么"
-        pet_before_evolution = re.search(r'(.+?)(?:以前是什么样子|进化前是什么|进化前的样子|之前是什么)', query)
+        pet_before_evolution = re.search(r'([^\s的]+?)(?:以前是什么样子|进化前是什么|进化前的样子|之前是什么)', query)
         if pet_before_evolution:
             return {
                 'type': 'pet_before_evolution_query',
@@ -2328,22 +2344,29 @@ class RocoWorldWiki(Star):
             }
         
         # "某精灵完整进化链"、"进化路线"
-        pet_full_evolution = re.search(r'(.+?)(?:完整进化链|进化链|进化路线|全部进化)', query)
+        pet_full_evolution = re.search(r'([^\s]+?)(?:的)?(?:完整进化链|进化链|进化路线|全部进化)', query)
         if pet_full_evolution:
-            return {
-                'type': 'pet_full_evolution_query',
-                'pet_name': pet_full_evolution.group(1).strip()
-            }
+            pet_name = pet_full_evolution.group(1).strip()
+            # 排除“所有”、“全部”等修饰词
+            pet_name = re.sub(r'(所有|全部)$', '', pet_name).strip()
+            # 去除末尾的“的”字
+            pet_name = pet_name.rstrip('的').strip()
+            if pet_name:  # 确保宠物名不为空
+                return {
+                    'type': 'pet_full_evolution_query',
+                    'pet_name': pet_name
+                }
         
         # 3.8.5 特定阶段形态查询：“墨鱿士的第二阶段”、“秩序鱿墨的第三阶段”、“迪莫的第2阶”
-        pet_stage_query = re.search(r'(.+?)(?:的第([一二三四五]|[1-5])阶段|的第([一二三四五]|[1-5])阶)', query)
+        # 支持有“的”和无“的”两种格式
+        pet_stage_query = re.search(r'([^\s]+?)(?:的)?(?:第([一二三四五]|[1-5])阶段|第([一二三四五]|[1-5])阶|([一二三四五]|[1-5])阶)', query)
         if pet_stage_query:
             pet_name = pet_stage_query.group(1).strip()
-            # 获取阶段数字（中文或阿拉伯数字）
-            stage_num_str = pet_stage_query.group(2) or pet_stage_query.group(3)
+            # 获取阶段数字（中文或阿拉伯数字）- 支持3种捕获组
+            stage_num_str = pet_stage_query.group(2) or pet_stage_query.group(3) or pet_stage_query.group(4)
             # 转换中文数字为阿拉伯数字
             chinese_to_num = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5}
-            stage_num = chinese_to_num.get(stage_num_str, int(stage_num_str) if stage_num_str.isdigit() else None)
+            stage_num = chinese_to_num.get(stage_num_str, int(stage_num_str) if stage_num_str and stage_num_str.isdigit() else None)
             
             if stage_num:
                 return {
@@ -2578,13 +2601,13 @@ class RocoWorldWiki(Star):
                         
                         response += f"  {i+1}. {stage_name}\n"
                         
-                        # 显示从这个阶段进化的条件
+                        # 显示从这个阶段进化到下一个阶段的条件
                         if i < len(common_stages) - 1:
-                            next_stage = common_stages[i+1]
-                            if next_stage.get('level'):
-                                response += f"     🎯 等级: {next_stage.get('level')}\n"
-                            if next_stage.get('condition'):
-                                response += f"     🔮 条件: {next_stage.get('condition')}\n"
+                            # level存储在当前阶段，表示从当前阶段进化到下一阶段需要的等级
+                            if stage.get('level'):
+                                response += f"     🎯 等级: {stage.get('level')}\n"
+                            if stage.get('condition'):
+                                response += f"     🔮 条件: {stage.get('condition')}\n"
                     response += "\n"
                 
                 # 显示各个分支
@@ -2600,7 +2623,7 @@ class RocoWorldWiki(Star):
                             indent = "  " if i == 0 else "    "
                             response += f"{indent}{len(common_stages)+i+1}. {stage_name}\n"
                             
-                            # 显示进化条件
+                            # 显示进化条件（level存储在当前阶段）
                             if stage.get('level'):
                                 response += f"{indent}   🎯 等级: {stage.get('level')}\n"
                             if stage.get('condition'):
@@ -2618,19 +2641,81 @@ class RocoWorldWiki(Star):
                         
                         response += f"{i+1}. {stage_name}\n"
                         
-                        # 显示从这个阶段进化的条件
+                        # 显示进化到下一个阶段的条件
                         if i < len(stages) - 1:
-                            next_stage = stages[i+1]
-                            if next_stage.get('level'):
-                                response += f"   🎯 等级: {next_stage.get('level')}\n"
-                            if next_stage.get('condition'):
-                                response += f"   🔮 条件: {next_stage.get('condition')}\n"
-                        elif i == len(stages) - 1 and i > 0:
-                            # 最后一个阶段，显示达到这个阶段的条件
+                            # level存储在当前阶段，表示从当前阶段进化到下一阶段需要的等级
                             if stage.get('level'):
                                 response += f"   🎯 等级: {stage.get('level')}\n"
                             if stage.get('condition'):
                                 response += f"   🔮 条件: {stage.get('condition')}\n"
+            
+            return response
+        
+        # 3.8.05 下一阶段查询 - 只返回下一个进化形态
+        elif query_type == 'pet_next_stage_query':
+            pet_name = type_match['pet_name']
+            
+            # 尝试获取所有进化分支
+            all_chains = self.db_service.get_pet_all_evolution_chains(pet_name)
+            
+            if not all_chains:
+                return f"❌ 未找到宠物 '{pet_name}'"
+            
+            # 收集所有下一个阶段
+            next_stages = []
+            for chain in all_chains:
+                next_stage = chain.get('next_stage')
+                if next_stage:
+                    next_stages.append({
+                        'stage': next_stage,
+                        'chain': chain
+                    })
+            
+            if not next_stages:
+                return f"✅ {pet_name} 已经是最终形态，没有后续进化了"
+            
+            response = f"➡️ **{pet_name}** 的下一阶段:\n\n"
+            
+            # 如果有多个分支，显示所有分支
+            if len(next_stages) > 1:
+                response += f"✨ {pet_name} 有 {len(next_stages)} 个进化方向:\n\n"
+                
+                for idx, next_info in enumerate(next_stages, 1):
+                    next_stage = next_info['stage']
+                    chain = next_info['chain']
+                    stages = chain.get('stages', [])
+                    
+                    response += f"**分支{idx}:** ✨ **{next_stage.get('name', '')}** (第{next_stage.get('stage', '?')}阶)\n"
+                    
+                    if next_stage.get('level'):
+                        response += f"   🎯 进化等级: {next_stage.get('level')}\n"
+                    if next_stage.get('condition'):
+                        response += f"   🔮 进化条件: {next_stage.get('condition')}\n"
+                    
+                    # 显示完整进化路线
+                    if len(stages) > 1:
+                        stage_names = [s.get('name', '') for s in stages]
+                        response += f"   📈 路线: {' → '.join(stage_names)}\n"
+                    
+                    response += "\n"
+            else:
+                # 单条进化链
+                next_stage = next_stages[0]['stage']
+                chain = next_stages[0]['chain']
+                stages = chain.get('stages', [])
+                
+                response += f"✨ **{next_stage.get('name', '')}** (第{next_stage.get('stage', '?')}阶)\n"
+                
+                if next_stage.get('level'):
+                    response += f"🎯 **进化等级:** {next_stage.get('level')}\n"
+                if next_stage.get('condition'):
+                    response += f"🔮 **进化条件:** {next_stage.get('condition')}\n"
+                
+                # 显示完整进化路线
+                if len(stages) > 1:
+                    response += f"\n📈 **完整进化路线:**\n"
+                    stage_names = [s.get('name', '') for s in stages]
+                    response += " → ".join(stage_names) + "\n"
             
             return response
         
