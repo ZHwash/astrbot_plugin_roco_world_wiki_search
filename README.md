@@ -54,30 +54,53 @@
 ### 前置要求
 - Python ≥ 3.8
 - AstrBot ≥ 2.0
-- Pydantic ≥ 2.0
-- requests, aiohttp, Pillow, openai
 
 ### 安装步骤
 
-#### 1. 安装依赖
-```bash
-cd astrbot_plugin_roco_world_wiki_search
-pip install -r requirements.txt
-```
-
-#### 2. 构建数据库
-```bash
-# 全量爬取（包含图片和完整数据）
-python -m src.build_wiki_db build --full
-
-# 或仅爬取基础数据（不含图片）
-python -m src.build_wiki_db build
-```
-
-#### 3. 部署到 AstrBot
+#### 1. 部署插件
 将插件文件夹复制到 AstrBot 的插件目录：
 ```
 AstrBot/data/plugins/astrbot_plugin_roco_world_wiki_search/
+```
+
+#### 2. 安装依赖（如果需要）
+
+**注意**：大多数情况下，AstrBot 环境已经包含了所需依赖，无需单独安装。
+
+如果运行时提示缺少依赖，请使用 AstrBot 的虚拟环境安装：
+
+```bash
+cd ~/AstrBot
+# 使用 AstrBot 的虚拟环境
+./astrbot_env/bin/pip install -r data/plugins/astrbot_plugin_roco_world_wiki_search/requirements.txt
+```
+
+或者在系统级别安装（不推荐）：
+```bash
+pip install --break-system-packages -r requirements.txt
+```
+
+#### 3. 数据库说明
+
+**✅ 数据库已预构建**：插件已包含完整的数据库文件（`wiki-local.db`），无需手动构建即可直接使用。
+
+**🔄 何时需要更新数据库**：
+- 当数据库中的数据与 Wiki 最新数据差距较大时
+- 当有新的宠物、技能或道具上线时
+- 当发现查询结果缺失或不准确时
+
+**更新方法**：
+
+**方法一：通过管理员命令（推荐）**
+在 AstrBot 中发送：
+```
+/洛克管理 update
+```
+
+**方法二：手动构建（高级用户）**
+```bash
+cd ~/AstrBot
+./astrbot_env/bin/python -m data.plugins.astrbot_plugin_roco_world_wiki_search.src.build_wiki_db build --full
 ```
 
 #### 4. 启用插件
