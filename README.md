@@ -526,7 +526,7 @@ python tools/fix_missing_pet_data.py
 
 **InMain**
 
-- GitHub: [@InMain](https://github.com/InMain)
+- GitHub: [@InMain](https://github.com/ZHwash)
 
 ---
 
