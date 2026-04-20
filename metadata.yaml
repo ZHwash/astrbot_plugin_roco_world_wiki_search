@@ -1,4 +1,4 @@
-name: astrbot-plugin-roco-world-wiki
+name: astrbot_plugin_roco_world_wiki
 display_name: 洛克王国 Wiki 查询
 description: "《洛克王国》百科全书查询插件，支持宠物、技能、属性克制查询"
 author: InMain
