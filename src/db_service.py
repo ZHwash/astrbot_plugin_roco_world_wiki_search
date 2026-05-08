@@ -1272,7 +1272,109 @@ class WikiDBService:
         except Exception as e:
             logger.error(f"❌ 按颜色搜索宠物失败: {e}")
             return []
-    
+
+    def get_branch_evolution_pets(self) -> List[str]:
+        """
+        获取所有有分支进化的精灵初始形态名称
+
+        分支进化定义：
+        1. 同一个初始形态有多个不同的最终形态（最后一个进化阶段）
+        2. 或者同一个初始形态在某个阶段有多个不同的下一阶段选择
+
+        注意：
+        - 过滤掉仅仅是地区/季节形态变体的情况（如"雪绒鸟（夏天）"和"雪绒鸟（本来）"是不同的初始形态）
+        - 但当后续进化阶段有分支时，应将初始形态加入结果
+        - 排除空的进化链记录（evolution_stages 为空数组的宠物不计入）
+
+        Returns:
+            初始形态名称列表（已排序）
+        """
+        self._ensure_connection()
+        cursor = self.conn.cursor()
+
+        try:
+            import json
+            from collections import defaultdict
+
+            # 查询所有有进化数据的精灵
+            query = """
+                SELECT name, evolution_stages, initial_stage_name
+                FROM pets
+                WHERE evolution_stages IS NOT NULL AND evolution_stages != ''
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+            # 按 initial_stage_name 分组，只保留有实际进化阶段的记录
+            initial_groups = defaultdict(list)
+            for row in rows:
+                row_dict = dict(row)
+                name = row_dict.get('name', '')
+                stages_json = row_dict.get('evolution_stages', '')
+                initial_name = row_dict.get('initial_stage_name', '')
+
+                if not stages_json:
+                    continue
+
+                try:
+                    stages = json.loads(stages_json)
+                    # 跳过空的进化链（没有实际进化阶段）
+                    if not stages or len(stages) == 0:
+                        continue
+
+                    if not initial_name or not initial_name.strip():
+                        # 如果没有 initial_stage_name，使用第一个阶段的名字
+                        initial_name = stages[0]['name'] if stages else name
+
+                    initial_groups[initial_name].append({
+                        'current_name': name,
+                        'stages': stages
+                    })
+                except Exception:
+                    continue
+
+            # 查找真正的分支进化
+            branch_pets = set()
+
+            for initial_name, evolutions in initial_groups.items():
+                # 策略1：检查是否有多个不同的最终形态
+                final_forms = set()
+                for evo in evolutions:
+                    stages = evo['stages']
+                    if stages:
+                        # 获取最后一个阶段（最终形态）
+                        final_stage_name = stages[-1]['name']
+                        final_forms.add(final_stage_name)
+
+                # 如果有多个不同的最终形态，说明有分支
+                if len(final_forms) > 1:
+                    branch_pets.add(initial_name)
+                    continue
+
+                # 策略2：检查是否在某个阶段有多个不同的下一阶段
+                # 收集所有进化链中每个阶段的下一阶段选项
+                stage_next_options = defaultdict(set)
+                for evo in evolutions:
+                    stages = evo['stages']
+                    for i in range(len(stages) - 1):
+                        current_stage_name = stages[i]['name']
+                        next_stage_name = stages[i+1]['name']
+                        stage_next_options[current_stage_name].add(next_stage_name)
+
+                # 如果任何阶段有多个不同的下一阶段，说明有分支
+                has_branch = any(len(options) > 1 for options in stage_next_options.values())
+                if has_branch:
+                    branch_pets.add(initial_name)
+
+            # 转换为排序列表
+            result = sorted(list(branch_pets))
+            logger.info(f"🔍 查询分支进化精灵，找到 {len(result)} 个初始形态")
+            return result
+
+        except Exception as e:
+            logger.error(f"❌ 查询分支进化精灵失败: {e}")
+            return []
+
     def __del__(self):
         """析构时关闭连接"""
         self.close()

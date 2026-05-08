@@ -1,4 +1,14 @@
-## 📝 更新日志
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+### v2.11 (2026-05-09)
+
+- **删除冗余查询功能**：仅保留关键词相应查询
+- **添加所有分支进化的精灵**：使用关键词+(r'(?:所有|全部)?(?:分支进化|有分支进化)(?:的)?(?:精灵|宠物|魔灵)?(?:有哪些|列表)?$', 'branch_evolution_list'),均可查询
 
 ### v2.10 (2026-04-10)
 - 🧬 **进化查询全面优化**：修复进化链等级显示逻辑，正确展示每个阶段的进化条件

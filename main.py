@@ -599,8 +599,7 @@ class RocoWorldWiki(Star):
             self.search_limit = max(self.config.get("search_limit", 5), 1) or 5
             self.enable_fuzzy_search = self.config.get("enable_fuzzy_search", True)
             self.response_style = self.config.get("response_style", "简洁")
-            self.trigger_keywords = self.config.get("trigger_keywords", ["洛克王国", "查询", "百科"])
-            self.query_command = self.config.get("query_command", "查询")
+            self.trigger_keywords = self.config.get("trigger_keywords", ["洛克王国", "百科"])
             self.image_keywords = self.config.get("image_keywords", ["图片", "图", "头像", "立绘"])
             
             # 分页配置
@@ -627,7 +626,6 @@ class RocoWorldWiki(Star):
             logger.info(f"   - 模糊搜索: {'开启' if self.enable_fuzzy_search else '关闭'}")
             logger.info(f"   - 搜索限制: {self.search_limit}")
             logger.info(f"   - 触发关键词: {', '.join(self.trigger_keywords)}")
-            logger.info(f"   - 查询指令: /{self.query_command}")
             logger.info(f"   - 分页大小: {self.page_size} 条/页")
             logger.info(f"   - 图片检索词: {', '.join(self.image_keywords)}")
             
@@ -1084,15 +1082,18 @@ class RocoWorldWiki(Star):
             
             # ====== 进化相关 ======
             # 带"的"的格式
-            (r'^(.+?)\s*的\s*(?:进化|进化条件|进化方式)$', 'evolution'),
+            (r'^(.+?)\s*的\s*(?:进化条件|进化方式)$', 'evolution'),
             # 不带"的"的格式
-            (r'^(.+?)\s+(?:进化|进化条件|进化方式)$', 'evolution'),
+            (r'^(.+?)\s+(?:进化条件|进化方式)$', 'evolution'),
             # 自然语言格式
             (r'^(.+?)怎么进化$', 'evolution'),
             (r'^(.+?)进化成什么$', 'evolution'),
             (r'^(.+?)的进化条件是什么$', 'evolution'),
             # 无空格拼接
-            (r'^(.+?)进化$', 'evolution'),
+            (r'^(.+?)(?:进化|进化链|进化路线)$', 'evolution'),
+
+            # ====== 分支进化列表 ======
+            (r'(?:所有|全部)?(?:分支进化|有分支进化)(?:的)?(?:精灵|宠物|魔灵)?(?:有哪些|列表)?$', 'branch_evolution_list'),
             
             # ====== 技能石相关 ======
             (r'^(.+?)技能石$', 'skill_stones'),
@@ -1101,6 +1102,14 @@ class RocoWorldWiki(Star):
         for pattern, detail_type in detail_patterns:
             match = re.search(pattern, cleaned_query)
             if match:
+                # 分支进化列表是特殊类型，不需要提取名称
+                if detail_type == 'branch_evolution_list':
+                    logger.info(f"🎯 匹配到分支进化列表查询: pattern='{pattern}'")
+                    return {
+                        'type': 'branch_evolution_list'
+                    }
+
+                # 其他类型需要提取名称
                 name = match.group(1).strip()
                 # 清理宠物名末尾的"的"字（防止"迪莫的"被当作宠物名）
                 if name.endswith('的'):
@@ -1532,6 +1541,33 @@ class RocoWorldWiki(Star):
             
             return response
         
+        elif detail_type == 'branch_evolution_list':
+            # 获取所有有分支进化的精灵列表
+            branch_pets = self.db_service.get_branch_evolution_pets()
+
+            if not branch_pets:
+                return "❌ 未找到有分支进化的精灵"
+
+            response = "🔀 **有分支进化的精灵（初始形态）**\n"
+            response += "━━━━━━━━━━━━━━\n\n"
+            response += f"共找到 {len(branch_pets)} 个有分支进化的精灵：\n\n"
+
+            # 分组显示，每行5个
+            for i, name in enumerate(branch_pets, 1):
+                response += f"{i}. {name}"
+                if i % 5 == 0 or i == len(branch_pets):
+                    response += "\n"
+                else:
+                    response += "  |  "
+
+            response += "\n💡 **提示：** 使用以下命令查看具体精灵的进化路线：\n"
+            response += "  • `百科 [精灵名] 进化`\n"
+            response += "  • `百科 [精灵名] 进化链`\n"
+            response += "  • `百科 [精灵名] 进化路线`\n"
+            response += DATA_SOURCE_NOTICE
+
+            return response
+
         else:
             return ""
     
@@ -3516,113 +3552,7 @@ class RocoWorldWiki(Star):
                 yield event.plain_result(msg)
         else:
             yield event.plain_result(f"❌ 未知命令: {cmd}\n\n📋 可用命令:\n  • update - 增量更新数据库\n  • status - 查看数据库状态\n  • tag-colors - 为道具标记颜色\n  • tag-pet-colors - 为宠物标记颜色\n  • force-tag-colors - 强制重新识别所有道具颜色\n  • force-tag-pet-colors - 强制重新识别所有宠物颜色\n  • fix-missing - 补全缺失的宠物数据\n  • check-vision - 检查视觉模型配置\n\n示例: 洛克管理 check-vision")
-    
-    @filter.command("查询", ["query", "wiki"])
-    async def handle_query(self, event: AstrMessageEvent, content: str):
-        """
-        处理查询命令
-        用法: /查询 <宠物/技能名称>
-              /查询 <宠物/技能名称> 图片 (只返回图片)
-        """
-        
-        # 参数验证
-        if not content or len(content.strip()) < 1:
-            yield "❌ 请输入要查询的宠物或技能名称！\n示例: /查询 喵喵\n示例: /查询 喵喵 图片"
-            return
-        
-        content = content.strip()
-        
-        # 检查数据库服务是否可用
-        if not self.db_service:
-            yield "❌ 数据库服务不可用，请联系管理员检查配置"
-            return
-        
-        # 检测是否是图片检索请求
-        is_image_query, clean_content = self._extract_image_query(content)
-        
-        if is_image_query:
-            logger.info(f"🖼️ 图片检索模式: {clean_content}")
-            async for msg in self._handle_image_only_query(event, clean_content):
-                yield msg
-            return
-        
-        # 先尝试查询宠物
-        pets = self.db_service.get_pet_info(
-            content, 
-            fuzzy=self.enable_fuzzy_search, 
-            limit=self.search_limit
-        )
-        
-        if pets:
-            # 找到宠物，格式化返回
-            if len(pets) == 1:
-                # 精确匹配，返回详细信息 + 图片
-                pet = pets[0]
-                response = self._format_pet_response(pet)
-                
-                # 尝试获取宠物图片
-                image_path = pet.get('sprite_image_local')
-                if image_path and os.path.exists(image_path):
-                    # 有本地图片，发送文字+图片
-                    response_with_source = response + DATA_SOURCE_NOTICE
-                    yield event.plain_result(response_with_source)
-                    yield event.image_result(image_path)
-                else:
-                    # 没有图片，只发送文字
-                    response_with_source = response + DATA_SOURCE_NOTICE
-                    yield event.plain_result(response_with_source)
-            else:
-                # 多个结果，返回列表
-                response = f"🔍 找到 {len(pets)} 个相关宠物:\n\n"
-                for i, pet in enumerate(pets[:self.search_limit], 1):
-                    response += f"{i}. {pet['name']} ({pet['element']}系)\n"
-                
-                response += DATA_SOURCE_NOTICE
-                yield event.plain_result(response)
-            return
-        
-        # 再尝试查询技能
-        skills = self.db_service.get_skill_info(
-            content,
-            fuzzy=self.enable_fuzzy_search,
-            limit=self.search_limit
-        )
-        
-        if skills:
-            # 找到技能，格式化返回
-            if len(skills) == 1:
-                response = self._format_skill_response(skills[0])
-            else:
-                response = f"🔍 找到 {len(skills)} 个相关技能:\n\n"
-                for i, skill in enumerate(skills[:self.search_limit], 1):
-                    response += f"{i}. {skill['name']} ({skill['element']}系, 威力:{skill['power']})\n"
-            
-            response += DATA_SOURCE_NOTICE
-            yield event.plain_result(response)
-            return
-        
-        # 最后尝试搜索 Wiki 页面
-        pages = self.db_service.search_wiki_page(
-            content,
-            fuzzy=self.enable_fuzzy_search,
-            limit=self.search_limit
-        )
-        
-        if pages:
-            response = f"📄 找到 {len(pages)} 个相关页面:\n\n"
-            for i, page in enumerate(pages[:self.search_limit], 1):
-                response += f"{i}. **{page['title']}** ({page['page_type']})\n"
-                if page['preview']:
-                    response += f"   _{page['preview'][:50]}..._\n"
-                response += "\n"
-            
-            response += DATA_SOURCE_NOTICE
-            yield event.plain_result(response)
-            return
-        
-        # 未找到任何结果
-        yield f"❌ 未找到与 \"{content}\" 相关的信息\n💡 提示: 可以尝试其他关键词或检查拼写"
-    
+
     async def _handle_image_only_query(self, event: AstrMessageEvent, query: str):
         """
         处理纯图片检索请求（只返回图片，不返回文字）
@@ -3768,7 +3698,14 @@ class RocoWorldWiki(Star):
             async for msg in self._handle_page_navigation(event, 'prev'):
                 yield msg
             return
-        
+
+        # 检查是否是wiki帮助命令
+        wiki_help_commands = ['/wiki帮助', '/wiki-help', '/wiki_help', 'wiki帮助', 'wiki-help', 'wiki_help']
+        if message_str in wiki_help_commands or any(message_str.startswith(cmd) for cmd in wiki_help_commands):
+            event.stop_event()
+            yield event.plain_result(WIKI_HELP_TEXT)
+            return
+
         # 检查是否是管理员命令（关键词触发）
         admin_cmd_prefixes = ["洛克管理", "wiki-admin", "wiki_admin"]
         for prefix in admin_cmd_prefixes:
@@ -3869,6 +3806,36 @@ class RocoWorldWiki(Star):
                     yield event.plain_result(f"❌ 未找到宠物 \"{pet_name}\"")
                     return
         
+        # 如果是分支进化列表查询
+        if query_intent.get('type') == 'branch_evolution_list':
+            logger.info(f"🎯 检测到分支进化列表查询")
+            # 直接调用数据库服务获取分支进化列表
+            branch_pets = self.db_service.get_branch_evolution_pets()
+
+            if not branch_pets:
+                yield event.plain_result("❌ 未找到有分支进化的精灵")
+                return
+
+            response = "🔀 **有分支进化的精灵（初始形态）**\n"
+            response += "━━━━━━━━━━━━━━\n\n"
+            response += f"共找到 {len(branch_pets)} 个有分支进化的精灵：\n\n"
+
+            # 分组显示，每行5个
+            for i, name in enumerate(branch_pets, 1):
+                response += f"{i}. {name}"
+                if i % 5 == 0 or i == len(branch_pets):
+                    response += "\n"
+                else:
+                    response += "  |  "
+
+            response += "\n💡 **提示：** 使用以下命令查看具体精灵的进化路线：\n"
+            response += "  • `百科 [精灵名] 进化`\n"
+            response += "  • `百科 [精灵名] 进化链`\n"
+            response += "  • `百科 [精灵名] 进化路线`\n"
+            response += DATA_SOURCE_NOTICE
+            yield event.plain_result(response)
+            return
+
         # 如果是技能石查询意图
         if query_intent.get('type') == 'skill_stone_info':
             stone_name = query_intent.get('stone_name', '')
@@ -4301,7 +4268,8 @@ class RocoWorldWiki(Star):
                 yield event.plain_result(response)
             return
         
-        yield event.plain_result(f"❌ 未找到与 \"{query_content}\" 相关的信息\n💡 提示：可以尝试只输入宠物名、技能名、编号或属性克制关系\n{DATA_SOURCE_NOTICE}")
+        # 未找到任何结果
+        yield event.plain_result(f"❌ 未找到与 \"{query_content}\" 相关的信息\n💡 输入 `/wiki帮助` 查看可用功能")
     
     def _cleanup_expired_sessions(self):
         """
