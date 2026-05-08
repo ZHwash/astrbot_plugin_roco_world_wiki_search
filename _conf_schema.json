@@ -27,13 +27,8 @@
     },
     "trigger_keywords": {
         "type": "list",
-        "default": ["洛克王国", "查询", "百科"],
+        "default": ["洛克王国", "百科"],
         "description": "触发查询的关键词列表"
-    },
-    "query_command": {
-        "type": "string",
-        "default": "查询",
-        "description": "查询指令名称（不含/前缀），修改后需重载插件"
     },
     "image_keywords": {
         "type": "list",

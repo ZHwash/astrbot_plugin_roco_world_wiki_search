@@ -2,7 +2,7 @@ name: astrbot_plugin_roco_world_wiki_search
 display_name: 洛克王国 Wiki 查询
 desc: "《洛克王国》百科全书查询插件，支持宠物、技能、属性克制查询"
 author: InMain
-version: v2.10.0
+version: v2.11.0
 repo: https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search
 python_version: ">=3.8"
 dependencies:
