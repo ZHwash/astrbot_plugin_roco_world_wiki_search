@@ -80,9 +80,36 @@ cd ~/AstrBot
 pip install --break-system-packages -r requirements.txt
 ```
 
-#### 3. 数据库说明
+#### 3. 数据库和图片说明
 
-**✅ 数据库已预构建**：插件已包含完整的数据库文件（`wiki-local.db`），无需手动构建即可直接使用。
+**📦 仓库分支说明**：
+
+为了控制插件包体积（AstrBot 要求 < 16MB），本项目采用双分支策略：
+
+- **主分支（5.9更新）**：仅包含代码和配置文件，体积约 7MB，用于 AstrBot 插件市场自动部署
+- **图片分支（images-branch）**：包含完整数据库和图片资源，体积约 320MB，用于本地开发和使用
+
+**✅ 首次使用步骤**：
+
+1. **克隆主分支**（默认）：
+   ```bash
+   git clone -b 5.9更新 https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search.git
+   cd astrbot_plugin_roco_world_wiki_search
+   ```
+
+2. **获取图片和数据库**（二选一）：
+
+   **方法一：切换到图片分支**（推荐本地使用）
+   ```bash
+   git checkout images-branch
+   ```
+
+   **方法二：通过管理员命令在线更新**（推荐服务器部署）
+   在 AstrBot 中发送：
+   ```
+   /洛克管理 update
+   ```
+   这会自动从 Wiki 爬取最新数据并生成数据库和图片
 
 **🔄 何时需要更新数据库**：
 - 当数据库中的数据与 Wiki 最新数据差距较大时
