@@ -86,14 +86,14 @@ pip install --break-system-packages -r requirements.txt
 
 为了控制插件包体积（AstrBot 要求 < 16MB），本项目采用双分支策略：
 
-- **主分支（5.9更新）**：仅包含代码和配置文件，体积约 7MB，用于 AstrBot 插件市场自动部署
+- **主分支（main）**：仅包含代码和配置文件，体积约 7MB，用于 AstrBot 插件市场自动部署
 - **图片分支（images-branch）**：包含完整数据库和图片资源，体积约 320MB，用于本地开发和使用
 
 **✅ 首次使用步骤**：
 
 1. **克隆主分支**（默认）：
    ```bash
-   git clone -b 5.9更新 https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search.git
+   git clone https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search.git
    cd astrbot_plugin_roco_world_wiki_search
    ```
 
