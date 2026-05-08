@@ -575,7 +575,7 @@ class RocoWorldWiki(Star):
             config: 新的配置字典
         """
         try:
-            logger.info("🔄 检测到配置更新，正在应用..."视觉模型: 未配置（颜色识别功能不可用）")
+            logger.info("🔄 检测到配置更新，正在应用...")
             
             # 更新配置
             self.config = config or {}
