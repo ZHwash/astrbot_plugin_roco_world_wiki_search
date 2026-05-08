@@ -4,7 +4,7 @@
 
 为了解决 AstrBot 插件包体积限制（< 16MB）的问题，本项目采用双分支策略：
 
-### 1. 主分支（5.9更新）
+### 1. 主分支（main）
 - **用途**：AstrBot 插件市场自动部署
 - **包含内容**：代码、配置文件
 - **体积**：约 7MB ✅
@@ -24,7 +24,7 @@
 
 1. **克隆主分支**
    ```bash
-   git clone -b 5.9更新 https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search.git
+   git clone https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search.git
    cd astrbot_plugin_roco_world_wiki_search
    ```
 
@@ -48,7 +48,7 @@
 
 1. **克隆主分支**
    ```bash
-   git clone -b 5.9更新 https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search.git
+   git clone https://github.com/ZHwash/astrbot_plugin_roco_world_wiki_search.git
    cd astrbot_plugin_roco_world_wiki_search
    ```
 
@@ -78,7 +78,7 @@ git checkout images-branch
 
 ### 从图片分支切换回主分支
 ```bash
-git checkout 5.9更新
+git checkout main
 ```
 
 ---
@@ -92,7 +92,7 @@ git checkout 5.9更新
 2. **定期同步更新**
    ```bash
    # 在主分支上
-   git pull origin 5.9更新
+   git pull origin main
    
    # 在图片分支上
    git pull origin images-branch
@@ -125,16 +125,16 @@ git checkout 5.9更新
 
 ### Q: 如何贡献代码？
 **A:** 
-- 请在主分支（5.9更新）上进行开发和提交 PR
+- 请在主分支（main）上进行开发和提交 PR
 - 图片分支仅用于存储数据，不接受代码修改
 
 ---
 
 ## 📊 仓库统计
 
-| 分支 | 文件大小 | Git 跟踪文件数 | 主要用途 |
-|------|---------|--------------|---------|
-| 5.9更新 | ~7MB | 35 | 插件市场部署 |
+| 分支          | 文件大小 | Git 跟踪文件数 | 主要用途 |
+|-------------|---------|--------------|---------|
+| main        | ~7MB | 35 | 插件市场部署 |
 | images-branch | ~320MB | 2773 | 本地开发使用 |
 
 ---
