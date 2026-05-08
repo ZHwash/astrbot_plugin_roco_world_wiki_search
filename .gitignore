@@ -40,5 +40,7 @@ tests/
 # Large data files (excluded to keep repo size < 16MB)
 # Images are stored in separate branch: git checkout images-branch
 output/images/
-*.db
-*.sqlite
+
+# Documentation files (not synced to remote)
+DEVELOPMENT.md
+AstrBot 插件开发指南（2026-02-13 发布）.md
