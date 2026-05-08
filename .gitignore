@@ -36,3 +36,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Test files (not synced to server)
 tests/
+
+# Large data files (excluded to keep repo size < 16MB)
+# Images are stored in separate branch: git checkout images-branch
+output/images/
+*.db
+*.sqlite
